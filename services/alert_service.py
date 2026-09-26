@@ -9,12 +9,12 @@ except ImportError:
 
 
 class AlertService:
-    """Provides audio and visual alerts when monitored devices go offline."""
+    """Provides audio alerts when monitored devices suffer confirmed outages."""
 
     def __init__(self, sound_enabled: bool = True):
         self.sound_enabled = sound_enabled
         self._last_alert_time = 0
-        self._alert_cooldown_sec = 2.0  # Cooldown between sounds
+        self._alert_cooldown_sec = 15.0  # At least 15s between audible alerts to avoid annoyance
 
     def toggle_sound(self) -> bool:
         self.sound_enabled = not self.sound_enabled
@@ -33,9 +33,9 @@ class AlertService:
 
         def _play():
             try:
-                # Pleasant descending warning tone (600Hz for 150ms then 400Hz for 200ms)
-                winsound.Beep(600, 120)
-                winsound.Beep(450, 180)
+                # Soft, discreet chime tone (700Hz for 80ms then 500Hz for 120ms)
+                winsound.Beep(700, 80)
+                winsound.Beep(520, 120)
             except Exception:
                 try:
                     winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)

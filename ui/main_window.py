@@ -429,6 +429,9 @@ class NetworkMonitorApp(ctk.CTk):
         self.stop_requested = False
         self._update_button_visuals(running_mode="ALL")
 
+        if hasattr(self, "_scan_wake_event"):
+            self._scan_wake_event.set()
+
         if not self.is_scanning:
             self.is_scanning = True
             threading.Thread(target=self._reactive_scan_coordinator, daemon=True).start()
@@ -443,6 +446,9 @@ class NetworkMonitorApp(ctk.CTk):
         self.scan_mode = "SELECTED"
         self.stop_requested = False
         self._update_button_visuals(running_mode="SELECTED")
+
+        if hasattr(self, "_scan_wake_event"):
+            self._scan_wake_event.set()
 
         if not self.is_scanning:
             self.is_scanning = True
@@ -485,7 +491,12 @@ class NetworkMonitorApp(ctk.CTk):
         1. Hierarchical ping: If router is down, immediately marks sub-devices down (skips 5 timeouts).
         2. Anti-flapping: Confirms timeouts with immediate retry to eliminate false drops.
         3. Batched dispatches: Smooth 60 FPS UI without main-thread flooding.
+        4. Smooth Cadence: 8s calm breathing interval with live countdown and confirmed audio alerts.
         """
+        self._offline_failure_counts = {}
+        self._scan_cycle_count = 0
+        self._scan_wake_event = threading.Event()
+
         while not self.stop_requested:
             if self.scan_mode == "SELECTED":
                 target_cards = [c for c in self.cards if c.is_selected()]
@@ -524,14 +535,20 @@ class NetworkMonitorApp(ctk.CTk):
                         card, p_res, s_res = res
                         completed_in_cycle += 1
 
-                        # State transition check for sound alerts
+                        # Anti-flapping confirmed alert: only trigger if confirmed down across 2 cycles!
                         prev_status = self._previous_states.get(card.device.ip, "Unknown")
                         new_online, _ = p_res
 
-                        if prev_status == "Online" and not new_online:
-                            self.alert_service.trigger_offline_alert(card.device.name, card.device.ip)
-
-                        self._previous_states[card.device.ip] = "Online" if new_online else "Offline"
+                        if new_online:
+                            self._offline_failure_counts[card.device.ip] = 0
+                            self._previous_states[card.device.ip] = "Online"
+                        else:
+                            failures = self._offline_failure_counts.get(card.device.ip, 0) + 1
+                            self._offline_failure_counts[card.device.ip] = failures
+                            if prev_status == "Online" and failures == 2:
+                                self.alert_service.trigger_offline_alert(card.device.name, card.device.ip)
+                            if failures >= 2:
+                                self._previous_states[card.device.ip] = "Offline"
 
                         batch.append((card, p_res, s_res))
 
@@ -549,12 +566,24 @@ class NetworkMonitorApp(ctk.CTk):
 
             # Cycle complete: atomic stats refresh
             self.after(0, self._refresh_stats)
+            self._scan_cycle_count += 1
 
-            # Breathing interval before next cycle (2 seconds)
-            for _ in range(20):
+            # Auto-save last seen timestamps every 3 cycles
+            if self._scan_cycle_count % 3 == 0:
+                self.storage_service.save_devices([c.device for c in self.cards])
+
+            # Smooth resting cadence (8 seconds countdown)
+            for sec in range(8, 0, -1):
                 if self.stop_requested:
                     break
-                time.sleep(0.1)
+                self.after(0, lambda s=sec: self.stats_bar.update_progress(0, 0, status_text=f"⏳ Next scan in {s}s"))
+                for _ in range(10):
+                    if self.stop_requested or (hasattr(self, "_scan_wake_event") and self._scan_wake_event.is_set()):
+                        break
+                    time.sleep(0.1)
+                if hasattr(self, "_scan_wake_event") and self._scan_wake_event.is_set():
+                    self._scan_wake_event.clear()
+                    break
 
         self.is_scanning = False
         self.after(0, lambda: self._update_button_visuals(running_mode="STOPPED"))

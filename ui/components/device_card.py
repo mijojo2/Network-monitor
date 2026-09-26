@@ -84,6 +84,15 @@ class DeviceCard(ctk.CTkFrame):
         )
         self.ip_lbl.pack(anchor="w")
 
+        self.last_seen_lbl = ctk.CTkLabel(
+            self.name_ip_frame,
+            text=self.device.get_last_seen_display(),
+            font=(Theme.FONT_FAMILY, 10),
+            text_color="#94A3B8",
+            anchor="w"
+        )
+        self.last_seen_lbl.pack(anchor="w", pady=(1, 0))
+
         self.header_frame.grid_columnconfigure(2, weight=1)
 
         # 3. Sub-devices Summary Pill (Shows exact offline machine names from outside)
@@ -299,6 +308,14 @@ class DeviceCard(ctk.CTkFrame):
             self._rendered_latency = latency
             self.pill_lbl.configure(text=f"{Theme.DOT_SYMBOL} Online   {latency}")
 
+        # Update last seen/connected label
+        if hasattr(self, "last_seen_lbl"):
+            self.last_seen_lbl.configure(text=self.device.get_last_seen_display())
+            if status == "Online":
+                self.last_seen_lbl.configure(text_color="#94A3B8")
+            else:
+                self.last_seen_lbl.configure(text_color="#F87171")
+
         # 3. Sub-devices Summary & Direct Offline Names Visibility
         offline_subs = [s.name for s in self.device.sub_devices if s.status == "Offline"]
         online_subs = [s.name for s in self.device.sub_devices if s.status == "Online"]
@@ -487,6 +504,11 @@ class DeviceCard(ctk.CTkFrame):
         Only updates widgets if state or sub-device status actually changed.
         """
         p_online, p_latency = parent_result
+        now = time.time()
+        self.device.last_check = now
+        if p_online:
+            self.device.last_seen = now
+
         new_status = "Online" if p_online else "Offline"
         new_latency = p_latency if p_online else "-"
 

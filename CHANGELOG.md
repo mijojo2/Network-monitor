@@ -9,8 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Planned / In Progress
-- Background scheduled periodic monitoring service.
 - Optional Telegram/Discord webhook notifications for branch disconnections.
+
+---
+
+## [1.3.3] - 2026-09-26
+### Added
+- **"Last Seen / Responded" Relative Timestamps & History**:
+  - Added connection history tracking (`last_seen`, `last_check`) to all branch models in [`Device`](core/models.py).
+  - Every card now displays an indicator next to its name/IP:
+    - Online: `🟢 Responded: 17:55:12` (exact clock time of response).
+    - Offline: `🔴 Down: 2m ago (17:53:10)` or `🔴 Down: 1h 15m ago (...)` showing both elapsed downtime and exact disconnection timestamp.
+  - Automatically persisted in `devices.JSON` across application sessions.
+
+### Changed
+- **Calm, Smooth Scanning Cadence (Eliminated Aggressive Continuous Scans)**:
+  - Replaced the aggressive 1-2 second scan loop with a smooth 8-second resting cadence between cycles.
+  - Added live countdown in the stats bar (`⏳ Next scan in 7s...`) so the admin knows when the next passive pass occurs.
+  - Manual triggers (`⚡ Scan All` or `🎯 Scan Selected`) immediately wake the scanning coordinator from its resting interval without any delay.
+- **2-Cycle Confirmed Outage Sound System & 15s Cooldown**:
+  - Eliminated annoying sound beeps caused by transient single-second packet loss.
+  - Audio warnings now strictly require **2 consecutive confirmed down cycles** before chiming.
+  - Softened chime frequencies (700Hz/520Hz) and enforced a 15-second minimum cooldown between audible alerts.
 
 ---
 

@@ -67,6 +67,8 @@ class StorageService:
                     ip=item.get("ip", ""),
                     status=item.get("status", "Unknown"),
                     latency=item.get("latency", "-"),
+                    last_seen=item.get("last_seen"),
+                    last_check=item.get("last_check"),
                     sub_devices=item.get("sub_devices", [])
                 )
                 if not dev.sub_devices:

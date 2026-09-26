@@ -1,5 +1,6 @@
+import time
 from dataclasses import dataclass, field
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 @dataclass
@@ -8,13 +9,15 @@ class SubDevice:
     ip: str
     status: str = "Unknown"  # "Online", "Offline", "Checking", "Unknown"
     latency: str = "-"
+    last_seen: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
             "ip": self.ip,
             "status": self.status,
-            "latency": self.latency
+            "latency": self.latency,
+            "last_seen": self.last_seen
         }
 
 
@@ -39,6 +42,8 @@ class Device:
     status: str = "Unknown"  # "Online", "Offline", "Checking", "Unknown"
     latency: str = "-"
     sub_devices: List[SubDevice] = field(default_factory=list)
+    last_seen: Optional[float] = None
+    last_check: Optional[float] = None
 
     def __post_init__(self):
         cleaned: List[SubDevice] = []
@@ -50,7 +55,8 @@ class Device:
                     name=item.get("name", ""),
                     ip=item.get("ip", ""),
                     status=item.get("status", "Unknown"),
-                    latency=item.get("latency", "-")
+                    latency=item.get("latency", "-"),
+                    last_seen=item.get("last_seen")
                 ))
         self.sub_devices = cleaned
 
@@ -58,8 +64,36 @@ class Device:
         return {
             "name": self.name,
             "ip": self.ip,
+            "last_seen": self.last_seen,
+            "last_check": self.last_check,
             "sub_devices": [s.to_dict() for s in self.sub_devices]
         }
+
+    def get_last_seen_display(self) -> str:
+        """Returns human-readable relative time and clock stamp for connection history."""
+        if self.status == "Online":
+            if self.last_seen:
+                t_str = time.strftime("%H:%M:%S", time.localtime(self.last_seen))
+                return f"🟢 Responded: {t_str}"
+            return "🟢 Responded: Just now"
+        else:
+            if not self.last_seen:
+                return "⚪ Last seen: Not recorded yet"
+            diff = time.time() - self.last_seen
+            t_str = time.strftime("%H:%M:%S", time.localtime(self.last_seen))
+            if diff < 60:
+                return f"🔴 Down: just now ({t_str})"
+            elif diff < 3600:
+                mins = int(diff // 60)
+                return f"🔴 Down: {mins}m ago ({t_str})"
+            elif diff < 86400:
+                hrs = int(diff // 3600)
+                mins = int((diff % 3600) // 60)
+                return f"🔴 Down: {hrs}h {mins}m ago ({t_str})"
+            else:
+                days = int(diff // 86400)
+                d_str = time.strftime("%b %d %H:%M", time.localtime(self.last_seen))
+                return f"🔴 Down: {days}d ago ({d_str})"
 
 
 @dataclass
