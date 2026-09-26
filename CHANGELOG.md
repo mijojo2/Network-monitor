@@ -9,8 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Planned / In Progress
-- Continuous improvements to device monitoring and alerts.
-- Automated commit & changelog tracking workflow.
+- Background scheduled periodic monitoring service.
+- Optional Telegram/Discord webhook notifications for branch disconnections.
+
+---
+
+## [1.2.0] - 2026-09-26
+### Added
+- **Clean Architecture Restructuring**:
+  - Reorganized the entire codebase into modular, decoupled layers:
+    - [`core/`](core/): Pure business entities and domain models ([`models.py`](core/models.py)).
+    - [`services/`](services/): Isolated infrastructure and business logic ([`scanner_service.py`](services/scanner_service.py), [`storage_service.py`](services/storage_service.py), [`excel_service.py`](services/excel_service.py), [`alert_service.py`](services/alert_service.py)).
+    - [`ui/`](ui/): CustomTkinter presentation layer with design system tokens ([`theme.py`](ui/theme.py)) and modular components ([`ui/components/`](ui/components/)).
+  - Maintained complete backward compatibility through legacy module re-exports.
+- **Vibrant Status Color System & Visual Badges**:
+  - Fixed Windows Tkinter monochrome emoji rendering bug by replacing emoji glyphs with vector circle dots (`●`) with explicit color styling.
+  - Added modern status pill containers for both parents and sub-devices:
+    - **Online**: Emerald green dot (`#22C55E`), bright text (`#4ADE80`), deep green container (`#064E3B`), and green card border.
+    - **Offline**: Crimson red dot (`#EF4444`), bright text (`#F87171`), deep red container (`#450A0A`), and red card border.
+    - **Checking**: Amber dot (`#F59E0B`), warm text (`#FCD34D`), amber container (`#451A03`), and amber card border.
+- **Live Monitoring Dashboard (`StatsBar`)**:
+  - Integrated persistent stats bar at top of window displaying:
+    - Total branches monitored
+    - Online branches count (`● Online: X`)
+    - Offline branches count (`● Offline: Y`)
+    - Checking branches count (`● Checking: Z`)
+    - Dynamic Network Health percentage (`⚡ Health: XX%`)
+    - Interactive Sound Alert toggle (`🔔 Sound: ON/OFF`)
+- **Quick Status Filter Bar (`FilterBar`)**:
+  - Added dedicated one-click status filter buttons: `All`, `● Offline Only`, `● Online Only`, and `● Checking`.
+  - Enables instant identification of failed branches across 200+ network locations without manual scrolling.
+- **In-Place Device Editing (`EditDeviceDialog`)**:
+  - Added `✏️ Edit` button on every card opening a modal configuration window.
+  - Supports editing branch name, parent IP, and adding/editing/removing sub-devices without deleting the device.
+- **Excel & CSV Import and Export (`ExcelService`)**:
+  - Added `📥 Export` button supporting both native Excel (`.xlsx` via `openpyxl`) and CSV (`.csv`).
+  - Added `📤 Import` button supporting append or replace workflows from spreadsheets.
+- **Audible Disconnection Alert System (`AlertService`)**:
+  - Built-in audio warning tone (using Windows `winsound`) triggered when any active branch transitions from Online to Offline.
+  - Integrated cooldown rate-limiter to prevent alarm fatigue during bulk network outages.
+- **Data Protection, Atomic Saving & Auto-Backups (`StorageService`)**:
+  - Implemented atomic file writes via temporary files and OS-level replacement to prevent JSON corruption during unexpected shutdowns.
+  - Implemented automatic rolling backups stored in `backups/` directory (retaining latest 7 snapshots).
+- **Dependency Management**:
+  - Added [`requirements.txt`](requirements.txt) specifying all required libraries (`customtkinter`, `pillow`, `openpyxl`, `darkdetect`).
+
+### Changed
+- **Scanner Optimization**:
+  - Added thread-local ICMP handle caching in [`services/scanner_service.py`](services/scanner_service.py) to prevent OS handle exhaustion during high-concurrency scans across 1,000+ endpoints.
+- **Debounced Search**:
+  - Implemented 180ms keystroke debouncing in the search bar to eliminate UI hesitation during rapid typing.
 
 ---
 

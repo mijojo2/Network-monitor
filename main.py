@@ -1,4 +1,5 @@
-from gui import NetworkMonitor
+from ui.main_window import NetworkMonitorApp
 
-app = NetworkMonitor()
-app.mainloop()
+if __name__ == "__main__":
+    app = NetworkMonitorApp()
+    app.mainloop()

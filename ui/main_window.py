@@ -1,0 +1,484 @@
+import customtkinter as ctk
+import threading
+import time
+import concurrent.futures
+from tkinter import filedialog, messagebox
+from typing import List, Optional
+from PIL import Image
+
+from core.models import Device, NetworkStats, get_default_sub_devices
+from services.scanner_service import ScannerService, ping
+from services.storage_service import StorageService
+from services.excel_service import ExcelService
+from services.alert_service import AlertService
+from ui.theme import Theme
+from ui.components.device_card import DeviceCard
+from ui.components.stats_bar import StatsBar
+from ui.components.filter_bar import FilterBar
+
+
+class NetworkMonitorApp(ctk.CTk):
+    """
+    Main Application Window built on Clean Architecture.
+    Coordinates UI Components with Scanner, Storage, Excel, and Alert services.
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        # Services
+        self.storage_service = StorageService()
+        self.scanner_service = ScannerService(timeout_ms=500)
+        self.alert_service = AlertService(sound_enabled=True)
+
+        # State
+        self.cards: List[DeviceCard] = []
+        self.stop_requested = False
+        self.is_scanning = False
+        self.all_expanded = False
+        self.active_status_filter = "ALL"
+        self._search_after_id = None
+        self._previous_states = {}  # Tracks IP -> status for offline alerts
+
+        self._init_window()
+        self._build_gui()
+        self.load_devices()
+
+    def _init_window(self):
+        self.title("Network Monitor Pro - Multi-Branch & Sub-Devices")
+        self.geometry("1140x740")
+        self.minsize(960, 600)
+        ctk.set_appearance_mode("Dark")
+        ctk.set_default_color_theme("blue")
+
+        try:
+            self.bg_image = ctk.CTkImage(
+                light_image=Image.open("assets/background.png"),
+                dark_image=Image.open("assets/background.png"),
+                size=(1140, 740)
+            )
+            self.background = ctk.CTkLabel(self, image=self.bg_image, text="")
+            self.background.place(x=0, y=0, relwidth=1, relheight=1)
+        except Exception:
+            self.configure(fg_color=Theme.BG_DARK)
+
+    def _build_gui(self):
+        # 1. Top Action Toolbar
+        top_bar = ctk.CTkFrame(
+            self,
+            fg_color=Theme.PANEL_BG,
+            corner_radius=10,
+            border_width=1,
+            border_color=Theme.BORDER_COLOR
+        )
+        top_bar.pack(fill="x", padx=12, pady=(10, 5))
+
+        # Add Device Section
+        self.name_entry = ctk.CTkEntry(
+            top_bar,
+            placeholder_text="Branch Name",
+            width=150,
+            height=32
+        )
+        self.name_entry.pack(side="left", padx=(10, 4), pady=8)
+        self.name_entry.bind("<Return>", lambda e: self.ip_entry.focus_set())
+
+        self.ip_entry = ctk.CTkEntry(
+            top_bar,
+            placeholder_text="IP Address",
+            width=135,
+            height=32
+        )
+        self.ip_entry.pack(side="left", padx=4, pady=8)
+        self.ip_entry.bind("<Return>", lambda e: self.add_device())
+
+        ctk.CTkButton(
+            top_bar,
+            text="➕ Add",
+            width=70,
+            height=32,
+            font=(Theme.FONT_FAMILY, 12, "bold"),
+            fg_color=Theme.ACCENT_BLUE,
+            hover_color=Theme.ACCENT_BLUE_HOVER,
+            command=self.add_device
+        ).pack(side="left", padx=4, pady=8)
+
+        ctk.CTkButton(
+            top_bar,
+            text="🗑 Delete",
+            width=75,
+            height=32,
+            font=(Theme.FONT_FAMILY, 12, "bold"),
+            fg_color=Theme.ACCENT_RED,
+            hover_color=Theme.ACCENT_RED_HOVER,
+            command=self.delete_selected
+        ).pack(side="left", padx=4, pady=8)
+
+        # Scanning Controls
+        self.ping_btn = ctk.CTkButton(
+            top_bar,
+            text="⚡ Ping Selected",
+            width=115,
+            height=32,
+            font=(Theme.FONT_FAMILY, 12, "bold"),
+            fg_color=Theme.ACCENT_GREEN,
+            hover_color=Theme.ACCENT_GREEN_HOVER,
+            command=self.ping_selected
+        )
+        self.ping_btn.pack(side="left", padx=4, pady=8)
+
+        ctk.CTkButton(
+            top_bar,
+            text="🛑 Stop",
+            width=65,
+            height=32,
+            font=(Theme.FONT_FAMILY, 12, "bold"),
+            fg_color="#B91C1C",
+            hover_color="#7F1D1D",
+            command=self.stop_scan
+        ).pack(side="left", padx=4, pady=8)
+
+        # Bulk Expand & Select Actions
+        self.select_all_btn = ctk.CTkButton(
+            top_bar,
+            text="Select All",
+            width=85,
+            height=32,
+            fg_color="#475569",
+            hover_color="#334155",
+            command=self.toggle_select_all
+        )
+        self.select_all_btn.pack(side="left", padx=4, pady=8)
+
+        self.expand_all_btn = ctk.CTkButton(
+            top_bar,
+            text="Expand All",
+            width=85,
+            height=32,
+            fg_color="#475569",
+            hover_color="#334155",
+            command=self.toggle_expand_all
+        )
+        self.expand_all_btn.pack(side="left", padx=4, pady=8)
+
+        # Import & Export Buttons
+        ctk.CTkButton(
+            top_bar,
+            text="📥 Export",
+            width=75,
+            height=32,
+            fg_color="#475569",
+            hover_color="#334155",
+            command=self.export_excel
+        ).pack(side="left", padx=4, pady=8)
+
+        ctk.CTkButton(
+            top_bar,
+            text="📤 Import",
+            width=75,
+            height=32,
+            fg_color="#475569",
+            hover_color="#334155",
+            command=self.import_excel
+        ).pack(side="left", padx=4, pady=8)
+
+        # Search Bar
+        self.search = ctk.CTkEntry(
+            top_bar,
+            placeholder_text="🔍 Search name or IP...",
+            width=180,
+            height=32
+        )
+        self.search.pack(side="right", padx=(4, 10), pady=8)
+        self.search.bind("<KeyRelease>", self._on_search_keyrelease)
+
+        # 2. Live Dashboard Stats Bar
+        self.stats_bar = StatsBar(self, on_toggle_sound=self._on_toggle_sound)
+        self.stats_bar.pack(fill="x", padx=12, pady=(0, 4))
+
+        # 3. Quick Status Filter Bar
+        filter_container = ctk.CTkFrame(self, fg_color="transparent")
+        filter_container.pack(fill="x", padx=12, pady=(2, 4))
+        self.filter_bar = FilterBar(filter_container, on_filter_change=self._on_filter_changed)
+        self.filter_bar.pack(side="left")
+
+        # 4. Scrollable Device Cards Container
+        self.device_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color=Theme.CONTAINER_BG,
+            corner_radius=10,
+            border_width=1,
+            border_color="#1E293B"
+        )
+        self.device_frame.pack(fill="both", expand=True, padx=12, pady=(2, 10))
+
+    def _on_toggle_sound(self, enabled: bool):
+        self.alert_service.sound_enabled = enabled
+
+    def _on_filter_changed(self, filter_type: str):
+        self.active_status_filter = filter_type
+        self._apply_display_filters()
+
+    def _on_search_keyrelease(self, event=None):
+        """Debounce search by 180ms to avoid freezing on rapid typing."""
+        if self._search_after_id:
+            self.after_cancel(self._search_after_id)
+        self._search_after_id = self.after(180, self._apply_display_filters)
+
+    def _apply_display_filters(self):
+        query = self.search.get().strip().lower()
+        filter_mode = self.active_status_filter
+
+        for card in self.cards:
+            dev = card.device
+            # 1. Status Filter Check
+            status_match = True
+            if filter_mode == "ONLINE":
+                status_match = (dev.status == "Online")
+            elif filter_mode == "OFFLINE":
+                status_match = (dev.status == "Offline")
+            elif filter_mode == "CHECKING":
+                status_match = (dev.status == "Checking")
+
+            # 2. Search Query Check
+            search_match = True
+            if query:
+                name_match = query in dev.name.lower()
+                ip_match = query in dev.ip.lower()
+                sub_match = any(
+                    query in s.name.lower() or query in s.ip.lower()
+                    for s in dev.sub_devices
+                )
+                search_match = (name_match or ip_match or sub_match)
+
+            should_show = status_match and search_match
+
+            is_currently_mapped = card.winfo_ismapped()
+            if should_show and not is_currently_mapped:
+                card.pack(fill="x", padx=5, pady=4)
+            elif not should_show and is_currently_mapped:
+                card.pack_forget()
+
+    def load_devices(self):
+        for card in self.cards:
+            card.destroy()
+        self.cards = []
+
+        devices = self.storage_service.load_devices()
+        for dev in devices:
+            self._create_and_pack_card(dev)
+
+        self._refresh_stats()
+
+    def _create_and_pack_card(self, device: Device) -> DeviceCard:
+        card = DeviceCard(
+            self.device_frame,
+            device,
+            on_update=self._on_device_updated,
+            on_selection_change=self._refresh_stats
+        )
+        card.pack(fill="x", padx=5, pady=4)
+        self.cards.append(card)
+        return card
+
+    def _on_device_updated(self):
+        self.storage_service.save_devices([c.device for c in self.cards])
+        self._refresh_stats()
+
+    def _refresh_stats(self):
+        total = len(self.cards)
+        online = sum(1 for c in self.cards if c.device.status == "Online")
+        offline = sum(1 for c in self.cards if c.device.status == "Offline")
+        checking = sum(1 for c in self.cards if c.device.status == "Checking")
+        unknown = total - (online + offline + checking)
+
+        stats = NetworkStats(
+            total_devices=total,
+            online_devices=online,
+            offline_devices=offline,
+            checking_devices=checking,
+            unknown_devices=unknown
+        )
+        self.stats_bar.update_stats(stats)
+        self.filter_bar.update_counts(total, online, offline, checking)
+
+    def add_device(self):
+        name = self.name_entry.get().strip()
+        ip = self.ip_entry.get().strip()
+        if not name or not ip:
+            return
+
+        device = Device(
+            name=name,
+            ip=ip,
+            sub_devices=get_default_sub_devices(ip)
+        )
+        self._create_and_pack_card(device)
+        self._on_device_updated()
+
+        self.name_entry.delete(0, "end")
+        self.ip_entry.delete(0, "end")
+        self.name_entry.focus_set()
+
+    def delete_selected(self):
+        remaining = []
+        deleted_count = 0
+        for card in self.cards:
+            if card.is_selected():
+                card.destroy()
+                deleted_count += 1
+            else:
+                remaining.append(card)
+
+        if deleted_count > 0:
+            self.cards = remaining
+            self._on_device_updated()
+
+    def toggle_select_all(self):
+        visible = [c for c in self.cards if c.winfo_ismapped()]
+        target = visible if visible else self.cards
+        if not target:
+            return
+
+        any_unselected = any(not c.is_selected() for c in target)
+        for c in target:
+            c.set_selected(any_unselected)
+
+        self.select_all_btn.configure(text="Deselect All" if any_unselected else "Select All")
+        self._refresh_stats()
+
+    def toggle_expand_all(self):
+        self.all_expanded = not self.all_expanded
+        for card in self.cards:
+            if self.all_expanded:
+                card.expand()
+            else:
+                card.collapse()
+        self.expand_all_btn.configure(text="Collapse All" if self.all_expanded else "Expand All")
+
+    def stop_scan(self):
+        self.stop_requested = True
+        self.ping_btn.configure(text="⚡ Ping Selected", fg_color=Theme.ACCENT_GREEN)
+
+    def ping_selected(self):
+        self.stop_requested = False
+        if not self.is_scanning:
+            self.is_scanning = True
+            self.ping_btn.configure(text="Scanning...", fg_color="#F59E0B")
+            threading.Thread(target=self._scan_coordinator, daemon=True).start()
+
+    def _scan_coordinator(self):
+        """High-concurrency scanning loop with handle reuse and state-change alerts."""
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            while not self.stop_requested:
+                selected_cards = [c for c in self.cards if c.is_selected()]
+
+                if not selected_cards:
+                    time.sleep(0.5)
+                    continue
+
+                for card in selected_cards:
+                    if self.stop_requested:
+                        break
+                    self.after(0, card.set_checking)
+
+                def ping_one_card(card: DeviceCard):
+                    if self.stop_requested:
+                        return None
+                    p_res = ping(card.device.ip)
+                    s_res = [ping(s.ip) for s in card.device.sub_devices]
+                    return card, p_res, s_res
+
+                futures = {
+                    executor.submit(ping_one_card, card): card
+                    for card in selected_cards
+                }
+
+                for future in concurrent.futures.as_completed(futures):
+                    if self.stop_requested:
+                        break
+                    try:
+                        res = future.result()
+                        if res:
+                            card, p_res, s_res = res
+                            # Check state transition for offline alert
+                            prev_status = self._previous_states.get(card.device.ip, "Unknown")
+                            new_online, _ = p_res
+
+                            if prev_status == "Online" and not new_online:
+                                self.alert_service.trigger_offline_alert(card.device.name, card.device.ip)
+
+                            self._previous_states[card.device.ip] = "Online" if new_online else "Offline"
+
+                            self.after(
+                                0,
+                                lambda c=card, p=p_res, s=s_res: (
+                                    c.apply_ping_results(p, s),
+                                    self._refresh_stats()
+                                )
+                            )
+                    except Exception:
+                        pass
+
+                if self.stop_requested:
+                    break
+
+                time.sleep(1)
+
+        self.is_scanning = False
+        self.after(0, lambda: self.ping_btn.configure(text="⚡ Ping Selected", fg_color=Theme.ACCENT_GREEN))
+
+    def export_excel(self):
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel Workbook", "*.xlsx"), ("CSV UTF-8", "*.csv")],
+            title="Export Devices"
+        )
+        if not file_path:
+            return
+
+        devices = [c.device for c in self.cards]
+        if file_path.lower().endswith(".xlsx"):
+            success, msg = ExcelService.export_to_excel(devices, file_path)
+        else:
+            success, msg = ExcelService.export_to_csv(devices, file_path)
+
+        if success:
+            messagebox.showinfo("Export Successful", msg)
+        else:
+            messagebox.showerror("Export Failed", msg)
+
+    def import_excel(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Excel or CSV", "*.xlsx;*.csv"), ("Excel Workbook", "*.xlsx"), ("CSV", "*.csv")],
+            title="Import Devices"
+        )
+        if not file_path:
+            return
+
+        success, imported_devices, msg = ExcelService.import_from_file(file_path)
+        if not success:
+            messagebox.showerror("Import Failed", msg)
+            return
+
+        answer = messagebox.askyesno(
+            "Confirm Import",
+            f"{msg}\nDo you want to append these devices to your current list? (Click 'No' to replace current list)"
+        )
+
+        if answer:
+            # Append
+            existing_ips = {c.device.ip for c in self.cards}
+            for d in imported_devices:
+                if d.ip not in existing_ips:
+                    self._create_and_pack_card(d)
+        else:
+            # Replace
+            for c in self.cards:
+                c.destroy()
+            self.cards = []
+            for d in imported_devices:
+                self._create_and_pack_card(d)
+
+        self._on_device_updated()
+        messagebox.showinfo("Import Complete", f"Successfully loaded devices into Network Monitor!")

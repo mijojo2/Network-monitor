@@ -29,3 +29,7 @@ ENV/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Project generated backups & temp files
+backups/
+*.tmp
