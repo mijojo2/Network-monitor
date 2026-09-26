@@ -98,13 +98,25 @@ class StatsBar(ctk.CTkFrame):
 
     def update_progress(self, current: int, total: int, status_text: str = ""):
         if status_text:
-            self.progress_lbl.configure(text=status_text)
+            new_text = status_text
         elif total > 0:
             pct = int((current / total) * 100) if total else 0
-            self.progress_lbl.configure(text=f"📡 Scanned: {current}/{total} ({pct}%)")
+            new_text = f"📡 Scanned: {current}/{total} ({pct}%)"
+        else:
+            new_text = "📡 Progress: Idle"
+
+        if getattr(self, "_last_rendered_progress", None) == new_text:
+            return
+        self._last_rendered_progress = new_text
+        self.progress_lbl.configure(text=new_text)
 
     def update_stats(self, stats: NetworkStats, total_scope: int = 0):
         scope = total_scope if total_scope > 0 else stats.total_devices
+        state = (stats.total_devices, stats.online_devices, stats.offline_devices, stats.stability_percentage, scope)
+        if getattr(self, "_last_rendered_stats", None) == state:
+            return
+        self._last_rendered_stats = state
+
         self.total_lbl.configure(text=f"🌐 Total: {stats.total_devices}")
         self.online_lbl.configure(text=f"{Theme.DOT_SYMBOL} Online: {stats.online_devices}/{scope}")
         self.offline_lbl.configure(text=f"{Theme.DOT_SYMBOL} Offline: {stats.offline_devices}/{scope}")

@@ -11,6 +11,7 @@ from services.scanner_service import ScannerService, ping, scan_device_hierarchy
 from services.storage_service import StorageService
 from services.excel_service import ExcelService
 from services.alert_service import AlertService
+from services.hq_gateway_service import HQGatewayService
 from ui.theme import Theme
 from ui.components.device_card import DeviceCard
 from ui.components.stats_bar import StatsBar
@@ -30,6 +31,11 @@ class NetworkMonitorApp(ctk.CTk):
         self.storage_service = StorageService()
         self.scanner_service = ScannerService(timeout_ms=700)
         self.alert_service = AlertService(sound_enabled=True)
+        self.hq_service = HQGatewayService(
+            target_ip="192.168.1.90",
+            check_interval=4.0,
+            on_status_change=self._on_hq_gateway_status_change
+        )
 
         # Persistent Thread Pool
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=50)
@@ -60,6 +66,8 @@ class NetworkMonitorApp(ctk.CTk):
         self.after(500, self.start_auto_scan)
         # Start live outage duration ticker (updates live minutes without seconds)
         self.after(2000, self._start_live_duration_ticker)
+        # Start HQ Gateway Sentinel monitoring
+        self.hq_service.start()
 
     def _init_window(self):
         self.title("Network Monitor Pro - Multi-Branch & Sub-Devices")
@@ -71,6 +79,8 @@ class NetworkMonitorApp(ctk.CTk):
 
     def _on_window_closing(self):
         self.stop_requested = True
+        if hasattr(self, "hq_service") and self.hq_service:
+            self.hq_service.stop()
         if hasattr(self, "_live_ticker_id") and self._live_ticker_id:
             try:
                 self.after_cancel(self._live_ticker_id)
@@ -201,11 +211,36 @@ class NetworkMonitorApp(ctk.CTk):
         self.search = ctk.CTkEntry(
             top_bar,
             placeholder_text="🔍 Search name or IP...",
-            width=160,
+            width=150,
             height=32
         )
         self.search.pack(side="right", padx=(4, 10), pady=8)
         self.search.bind("<KeyRelease>", self._on_search_keyrelease)
+
+        # HQ Gateway Monitor Box (Sentinel for 192.168.1.90 with 3-packet anti-flapping)
+        self.hq_badge = ctk.CTkFrame(
+            top_bar,
+            fg_color="#064E3B",
+            corner_radius=8,
+            border_width=1,
+            border_color="#059669",
+            height=32,
+            cursor="hand2"
+        )
+        self.hq_badge.pack(side="right", padx=(4, 6), pady=8)
+
+        self.hq_badge_lbl = ctk.CTkLabel(
+            self.hq_badge,
+            text="⏳ HQ Gateway: Checking...",
+            font=(Theme.FONT_FAMILY, 11, "bold"),
+            text_color="#6EE7B7",
+            padx=10,
+            pady=4,
+            cursor="hand2"
+        )
+        self.hq_badge_lbl.pack()
+        self.hq_badge.bind("<Button-1>", lambda e: self._manual_check_hq_gateway())
+        self.hq_badge_lbl.bind("<Button-1>", lambda e: self._manual_check_hq_gateway())
 
         # 2. Live Dashboard Stats Bar
         self.stats_bar = StatsBar(self, on_toggle_sound=self._on_toggle_sound)
@@ -287,9 +322,51 @@ class NetworkMonitorApp(ctk.CTk):
         except Exception:
             pass
 
-        # Schedule next tick in 5 seconds (5000 ms)
+        # Schedule next tick in 10 seconds (10000 ms)
         if not self.stop_requested:
-            self._live_ticker_id = self.after(5000, self._tick_live_durations)
+            self._live_ticker_id = self.after(10000, self._tick_live_durations)
+
+    def _on_hq_gateway_status_change(self, online: bool, latency: str):
+        if not self.stop_requested:
+            try:
+                self.after(0, lambda: self._update_hq_badge(online, latency))
+            except Exception:
+                pass
+
+    def _manual_check_hq_gateway(self):
+        try:
+            self.hq_badge_lbl.configure(text="⏳ HQ: Checking...", text_color="#FCD34D")
+        except Exception:
+            pass
+
+        def _check():
+            online, latency = self.hq_service.ping_once()
+            if not self.stop_requested:
+                try:
+                    self.after(0, lambda: self._update_hq_badge(online, latency))
+                except Exception:
+                    pass
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _update_hq_badge(self, online: bool, latency: str):
+        state = (online, latency)
+        if getattr(self, "_last_rendered_hq_state", None) == state:
+            return
+        self._last_rendered_hq_state = state
+
+        if online:
+            lat_str = f" ({latency})" if latency and latency != "-" else ""
+            self.hq_badge.configure(fg_color="#064E3B", border_color="#059669")
+            self.hq_badge_lbl.configure(
+                text=f"🟢 HQ (192.168.1.90): Online{lat_str}",
+                text_color="#6EE7B7"
+            )
+        else:
+            self.hq_badge.configure(fg_color="#7F1D1D", border_color="#EF4444")
+            self.hq_badge_lbl.configure(
+                text="🔴 HQ (192.168.1.90): OFFLINE",
+                text_color="#FCA5A5"
+            )
 
     def _on_toggle_sound(self, enabled: bool):
         self.alert_service.sound_enabled = enabled
@@ -794,7 +871,7 @@ class NetworkMonitorApp(ctk.CTk):
 
                         batch.append((card, p_res, s_res))
 
-                        if len(batch) >= 12:
+                        if len(batch) >= 16:
                             self._dispatch_ping_batch(list(batch), completed_in_cycle, total_in_cycle)
                             batch.clear()
                 except Exception:

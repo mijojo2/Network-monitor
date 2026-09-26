@@ -13,6 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.3] - 2026-09-26
+### Added
+- **HQ Gateway Sentinel Monitor & Real-Time Top Badge (`192.168.1.90`)**:
+  - Implemented `HQGatewayService`: a dedicated background daemon that continuously monitors the HQ Main Router/Gateway (`192.168.1.90`) independently of branch scanning cycles.
+  - **3-Packet Anti-Flapping**: Sends 3 echo packets (500ms timeout) per check. Resolves the critical operational question of whether local HQ network dropped or remote branches dropped. Prevents false jitter by requiring all 3 packets to drop before declaring HQ Offline.
+  - **High-Visibility Interactive Top Badge**: Embedded in the top toolbar right next to the search bar. Displays emerald green with green dot (`🟢 HQ (192.168.1.90): Online (67 ms)`) when connected, and deep crimson with red dot (`🔴 HQ (192.168.1.90): OFFLINE`) when disconnected.
+  - Clickable tactile badge: clicking the badge triggers an immediate on-demand re-check.
+
+### Optimized
+- **Complete Elimination of UI Lag & 60 FPS Scrolling Optimization**:
+  - **Comprehensive State-Diffing**: Added strict state guards to `_update_server_badge` and `expand_btn` in `DeviceCard`, `FilterBar.update_counts`, and `StatsBar.update_stats`. Completely stops Tkinter from reconfiguring widgets on every scan tick when statuses and counts haven't changed.
+  - **Zero-Overhead Card Layout**: Replaced heavy nested Canvas `CTkFrame` containers inside card headers with native `tk.Frame(bg=Theme.CARD_BG)`, eliminating over 630 unnecessary Canvas widgets across 210 cards.
+  - **Smooth Background Cadence**: Tuned `_tick_live_durations` to 10s (halving timer overhead) and adjusted ping batch dispatch to 16 cards, leaving the UI thread 100% responsive for silky-smooth mousewheel scrolling.
+
+---
+
 ## [1.4.2] - 2026-09-26
 ### Fixed
 - **Automatic Removal of Recovered Servers from `Server Down` View**:

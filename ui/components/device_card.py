@@ -65,11 +65,11 @@ class DeviceCard(ctk.CTkFrame):
         )
         self.status_dot.grid(row=0, column=1, rowspan=2, padx=(0, 10), sticky="w")
 
-        # 2. Name & Router IP Stack
-        self.name_ip_frame = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        # 2. Name & Router IP Stack (Ultra-lightweight native layout containers)
+        self.name_ip_frame = tk.Frame(self.header_frame, bg=Theme.CARD_BG)
         self.name_ip_frame.grid(row=0, column=2, rowspan=2, sticky="w")
 
-        name_row = ctk.CTkFrame(self.name_ip_frame, fg_color="transparent")
+        name_row = tk.Frame(self.name_ip_frame, bg=Theme.CARD_BG)
         name_row.pack(anchor="w")
 
         self.name_lbl = ctk.CTkLabel(
@@ -120,7 +120,7 @@ class DeviceCard(ctk.CTkFrame):
         self.has_active_alert = False
 
         # IPs row: Router IP + Dedicated Server Status Badge
-        self.ips_row = ctk.CTkFrame(self.name_ip_frame, fg_color="transparent")
+        self.ips_row = tk.Frame(self.name_ip_frame, bg=Theme.CARD_BG)
         self.ips_row.pack(anchor="w", pady=(2, 0))
 
         self.ip_lbl = ctk.CTkLabel(
@@ -344,9 +344,12 @@ class DeviceCard(ctk.CTkFrame):
         latency = self.device.latency
         count = len(self.device.sub_devices)
 
-        # 1. Update Expand Button if count changed or forced
-        arrow = "▲" if self.is_expanded else "▼"
-        self.expand_btn.configure(text=f"{arrow} Sub-devices ({count})")
+        # 1. Update Expand Button if count/state changed or forced
+        expand_state = (self.is_expanded, count)
+        if getattr(self, "_rendered_expand_state", None) != expand_state or force:
+            self._rendered_expand_state = expand_state
+            arrow = "▲" if self.is_expanded else "▼"
+            self.expand_btn.configure(text=f"{arrow} Sub-devices ({count})")
 
         # 2. Check if Parent Status or Latency changed
         status_changed = (status != self._rendered_status) or force
@@ -433,9 +436,9 @@ class DeviceCard(ctk.CTkFrame):
                     )
 
         # 4. Direct Server Status & IP Visibility on Header
-        self._update_server_badge()
+        self._update_server_badge(force=force)
 
-    def _update_server_badge(self):
+    def _update_server_badge(self, force: bool = False):
         """
         Updates the header Server badge with live IP, status, and latency.
         Critically highlights the deceptive failure where Router is Online but Server is Offline.
@@ -456,6 +459,11 @@ class DeviceCard(ctk.CTkFrame):
         s_status = server_sub.status
         s_latency = server_sub.latency
         router_status = self.device.status
+
+        current_server_state = (s_ip, s_status, s_latency, router_status)
+        if getattr(self, "_rendered_server_state", None) == current_server_state and not force:
+            return
+        self._rendered_server_state = current_server_state
 
         if s_status == "Online":
             lat_str = f" ({s_latency})" if s_latency and s_latency != "-" else ""

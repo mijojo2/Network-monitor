@@ -346,6 +346,11 @@ class FilterBar(ctk.CTkFrame):
         srv_up_down: int = 0,
         srv_online: int = 0
     ):
+        counts = (total, online, offline, offline_5m, sub_issues, type_total, circle_k, franchise, srv_total, srv_down, srv_up_down, srv_online)
+        if getattr(self, "_last_rendered_counts", None) == counts:
+            return
+        self._last_rendered_counts = counts
+
         self.all_btn.configure(text=f"All ({total})")
         self.offline_btn.configure(text=f"{Theme.DOT_SYMBOL} Offline ({offline})")
         self.offline_5m_btn.configure(text=f"⏳ Offline >5m ({offline_5m})")
