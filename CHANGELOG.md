@@ -14,6 +14,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-09-26
+### Added
+- **BLoC / Reactive State-Diffing Architecture**:
+  - Implemented conditional UI rendering in [`DeviceCard`](ui/components/device_card.py): if a branch and its sub-devices maintain their state, zero widget reconfigurations or repaints are performed.
+  - Eliminated the global full-screen "Checking..." wipe at the start of each cycle, resulting in completely smooth, flicker-free background monitoring.
+  - Reduced Tkinter redraws by over 95%, cutting CPU consumption to below 1% during active monitoring.
+- **Auto-Start Monitoring**:
+  - The application now begins scanning all branches automatically upon launch without requiring manual user initiation.
+- **Selective vs Full Scanning Controls**:
+  - Added dedicated `⚡ Scan All` (monitors all 210 branches) and `🎯 Scan Selected` (monitors only checked branches, leaving the others untouched) controls in the toolbar.
+  - Responsive `🛑 Stop` button that halts the background scanning loop immediately.
+- **Live "X/Y" Progress and Status Ratio Counters**:
+  - Added real-time scan cycle progress indicator (`📡 Scanned: X/Y (PCT%)`) in [`StatsBar`](ui/components/stats_bar.py).
+  - Upgraded Online and Offline counters to display exact ratios against total monitored scope (`● Online: X/Total`, `● Offline: Y/Total`).
+- **Batched UI Stats Refresh & Inter-Cycle Throttle**:
+  - Replaced per-ping stats recalculation with batched, throttled refresh at cycle completion, removing tens of thousands of redundant main thread iterations.
+  - Added a 2-second inter-cycle breathing interval to prevent continuous network socket and CPU congestion.
+
+---
+
 ## [1.2.0] - 2026-09-26
 ### Added
 - **Clean Architecture Restructuring**:

@@ -4,7 +4,10 @@ from core.models import NetworkStats
 
 
 class StatsBar(ctk.CTkFrame):
-    """Top-level live monitoring statistics bar."""
+    """
+    Live monitoring dashboard bar showing:
+    Total, Online (X/Total), Offline (Y/Total), Scanning Progress (A/B), Network Health %, and Sound Toggle.
+    """
 
     def __init__(self, master, on_toggle_sound=None):
         super().__init__(
@@ -25,41 +28,41 @@ class StatsBar(ctk.CTkFrame):
         self.grid_columnconfigure(4, weight=1)
         self.grid_columnconfigure(5, weight=0)
 
-        # 1. Total Devices
+        # 1. Total Monitored
         self.total_lbl = ctk.CTkLabel(
             self,
             text="🌐 Total: 0",
             font=(Theme.FONT_FAMILY, 13, "bold"),
             text_color="#F1F5F9"
         )
-        self.total_lbl.grid(row=0, column=0, padx=10, pady=8)
+        self.total_lbl.grid(row=0, column=0, padx=8, pady=8)
 
-        # 2. Online Devices
+        # 2. Online Ratio (e.g. Online: 5/210)
         self.online_lbl = ctk.CTkLabel(
             self,
-            text=f"{Theme.DOT_SYMBOL} Online: 0",
+            text=f"{Theme.DOT_SYMBOL} Online: 0/0",
             font=(Theme.FONT_FAMILY, 13, "bold"),
             text_color=Theme.ONLINE_TEXT
         )
-        self.online_lbl.grid(row=0, column=1, padx=10, pady=8)
+        self.online_lbl.grid(row=0, column=1, padx=8, pady=8)
 
-        # 3. Offline Devices
+        # 3. Offline Ratio (e.g. Offline: 145/210)
         self.offline_lbl = ctk.CTkLabel(
             self,
-            text=f"{Theme.DOT_SYMBOL} Offline: 0",
+            text=f"{Theme.DOT_SYMBOL} Offline: 0/0",
             font=(Theme.FONT_FAMILY, 13, "bold"),
             text_color=Theme.OFFLINE_TEXT
         )
-        self.offline_lbl.grid(row=0, column=2, padx=10, pady=8)
+        self.offline_lbl.grid(row=0, column=2, padx=8, pady=8)
 
-        # 4. Checking Devices
-        self.checking_lbl = ctk.CTkLabel(
+        # 4. Live Scan Cycle Progress (e.g. 📡 Progress: 45/210)
+        self.progress_lbl = ctk.CTkLabel(
             self,
-            text=f"{Theme.DOT_SYMBOL} Checking: 0",
-            font=(Theme.FONT_FAMILY, 13, "bold"),
+            text="📡 Progress: Idle",
+            font=(Theme.FONT_FAMILY, 12, "bold"),
             text_color=Theme.CHECKING_TEXT
         )
-        self.checking_lbl.grid(row=0, column=3, padx=10, pady=8)
+        self.progress_lbl.grid(row=0, column=3, padx=8, pady=8)
 
         # 5. Network Stability %
         self.stability_lbl = ctk.CTkLabel(
@@ -68,7 +71,7 @@ class StatsBar(ctk.CTkFrame):
             font=(Theme.FONT_FAMILY, 13, "bold"),
             text_color="#38BDF8"
         )
-        self.stability_lbl.grid(row=0, column=4, padx=10, pady=8)
+        self.stability_lbl.grid(row=0, column=4, padx=8, pady=8)
 
         # 6. Sound Alert Toggle
         self.sound_btn = ctk.CTkButton(
@@ -93,11 +96,18 @@ class StatsBar(ctk.CTkFrame):
         if self.on_toggle_sound:
             self.on_toggle_sound(self.sound_enabled)
 
-    def update_stats(self, stats: NetworkStats):
+    def update_progress(self, current: int, total: int, status_text: str = ""):
+        if status_text:
+            self.progress_lbl.configure(text=status_text)
+        elif total > 0:
+            pct = int((current / total) * 100) if total else 0
+            self.progress_lbl.configure(text=f"📡 Scanned: {current}/{total} ({pct}%)")
+
+    def update_stats(self, stats: NetworkStats, total_scope: int = 0):
+        scope = total_scope if total_scope > 0 else stats.total_devices
         self.total_lbl.configure(text=f"🌐 Total: {stats.total_devices}")
-        self.online_lbl.configure(text=f"{Theme.DOT_SYMBOL} Online: {stats.online_devices}")
-        self.offline_lbl.configure(text=f"{Theme.DOT_SYMBOL} Offline: {stats.offline_devices}")
-        self.checking_lbl.configure(text=f"{Theme.DOT_SYMBOL} Checking: {stats.checking_devices}")
+        self.online_lbl.configure(text=f"{Theme.DOT_SYMBOL} Online: {stats.online_devices}/{scope}")
+        self.offline_lbl.configure(text=f"{Theme.DOT_SYMBOL} Offline: {stats.offline_devices}/{scope}")
 
         health_color = "#38BDF8"
         if stats.offline_devices > 0:

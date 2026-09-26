@@ -19,8 +19,8 @@ from ui.components.filter_bar import FilterBar
 
 class NetworkMonitorApp(ctk.CTk):
     """
-    Main Application Window built on Clean Architecture.
-    Coordinates UI Components with Scanner, Storage, Excel, and Alert services.
+    Main Application Window built on Clean Architecture and Reactive State-Diffing.
+    Includes Auto-start, Selective Pinging, Live 'X/Y' Progress Ratios, and Silent Background Scanning.
     """
 
     def __init__(self):
@@ -35,6 +35,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.cards: List[DeviceCard] = []
         self.stop_requested = False
         self.is_scanning = False
+        self.scan_mode = "ALL"  # "ALL" or "SELECTED"
         self.all_expanded = False
         self.active_status_filter = "ALL"
         self._search_after_id = None
@@ -43,6 +44,9 @@ class NetworkMonitorApp(ctk.CTk):
         self._init_window()
         self._build_gui()
         self.load_devices()
+
+        # Auto-start scanning on launch (after UI has fully rendered)
+        self.after(600, self.start_auto_scan)
 
     def _init_window(self):
         self.title("Network Monitor Pro - Multi-Branch & Sub-Devices")
@@ -77,57 +81,69 @@ class NetworkMonitorApp(ctk.CTk):
         self.name_entry = ctk.CTkEntry(
             top_bar,
             placeholder_text="Branch Name",
-            width=150,
+            width=140,
             height=32
         )
-        self.name_entry.pack(side="left", padx=(10, 4), pady=8)
+        self.name_entry.pack(side="left", padx=(10, 3), pady=8)
         self.name_entry.bind("<Return>", lambda e: self.ip_entry.focus_set())
 
         self.ip_entry = ctk.CTkEntry(
             top_bar,
             placeholder_text="IP Address",
-            width=135,
+            width=130,
             height=32
         )
-        self.ip_entry.pack(side="left", padx=4, pady=8)
+        self.ip_entry.pack(side="left", padx=3, pady=8)
         self.ip_entry.bind("<Return>", lambda e: self.add_device())
 
         ctk.CTkButton(
             top_bar,
             text="➕ Add",
-            width=70,
+            width=65,
             height=32,
             font=(Theme.FONT_FAMILY, 12, "bold"),
             fg_color=Theme.ACCENT_BLUE,
             hover_color=Theme.ACCENT_BLUE_HOVER,
             command=self.add_device
-        ).pack(side="left", padx=4, pady=8)
+        ).pack(side="left", padx=3, pady=8)
 
         ctk.CTkButton(
             top_bar,
             text="🗑 Delete",
-            width=75,
+            width=70,
             height=32,
             font=(Theme.FONT_FAMILY, 12, "bold"),
             fg_color=Theme.ACCENT_RED,
             hover_color=Theme.ACCENT_RED_HOVER,
             command=self.delete_selected
-        ).pack(side="left", padx=4, pady=8)
+        ).pack(side="left", padx=3, pady=8)
 
-        # Scanning Controls
-        self.ping_btn = ctk.CTkButton(
+        # Scanning Controls: Scan All & Scan Selected & Stop
+        self.scan_all_btn = ctk.CTkButton(
             top_bar,
-            text="⚡ Ping Selected",
-            width=115,
+            text="⚡ Scan All",
+            width=100,
             height=32,
             font=(Theme.FONT_FAMILY, 12, "bold"),
             fg_color=Theme.ACCENT_GREEN,
             hover_color=Theme.ACCENT_GREEN_HOVER,
-            command=self.ping_selected
+            command=self.start_scan_all
         )
-        self.ping_btn.pack(side="left", padx=4, pady=8)
+        self.scan_all_btn.pack(side="left", padx=3, pady=8)
 
-        ctk.CTkButton(
+        self.scan_selected_btn = ctk.CTkButton(
+            top_bar,
+            text="🎯 Scan Selected",
+            width=115,
+            height=32,
+            font=(Theme.FONT_FAMILY, 12, "bold"),
+            fg_color="#0284C7",
+            hover_color="#0369A1",
+            command=self.start_scan_selected
+        )
+        self.scan_selected_btn.pack(side="left", padx=3, pady=8)
+
+        self.stop_btn = ctk.CTkButton(
             top_bar,
             text="🛑 Stop",
             width=65,
@@ -136,19 +152,20 @@ class NetworkMonitorApp(ctk.CTk):
             fg_color="#B91C1C",
             hover_color="#7F1D1D",
             command=self.stop_scan
-        ).pack(side="left", padx=4, pady=8)
+        )
+        self.stop_btn.pack(side="left", padx=3, pady=8)
 
         # Bulk Expand & Select Actions
         self.select_all_btn = ctk.CTkButton(
             top_bar,
             text="Select All",
-            width=85,
+            width=80,
             height=32,
             fg_color="#475569",
             hover_color="#334155",
             command=self.toggle_select_all
         )
-        self.select_all_btn.pack(side="left", padx=4, pady=8)
+        self.select_all_btn.pack(side="left", padx=3, pady=8)
 
         self.expand_all_btn = ctk.CTkButton(
             top_bar,
@@ -159,40 +176,40 @@ class NetworkMonitorApp(ctk.CTk):
             hover_color="#334155",
             command=self.toggle_expand_all
         )
-        self.expand_all_btn.pack(side="left", padx=4, pady=8)
+        self.expand_all_btn.pack(side="left", padx=3, pady=8)
 
         # Import & Export Buttons
         ctk.CTkButton(
             top_bar,
             text="📥 Export",
-            width=75,
+            width=70,
             height=32,
             fg_color="#475569",
             hover_color="#334155",
             command=self.export_excel
-        ).pack(side="left", padx=4, pady=8)
+        ).pack(side="left", padx=3, pady=8)
 
         ctk.CTkButton(
             top_bar,
             text="📤 Import",
-            width=75,
+            width=70,
             height=32,
             fg_color="#475569",
             hover_color="#334155",
             command=self.import_excel
-        ).pack(side="left", padx=4, pady=8)
+        ).pack(side="left", padx=3, pady=8)
 
         # Search Bar
         self.search = ctk.CTkEntry(
             top_bar,
             placeholder_text="🔍 Search name or IP...",
-            width=180,
+            width=160,
             height=32
         )
         self.search.pack(side="right", padx=(4, 10), pady=8)
         self.search.bind("<KeyRelease>", self._on_search_keyrelease)
 
-        # 2. Live Dashboard Stats Bar
+        # 2. Live Dashboard Stats Bar (Shows 'X/Y' Ratios and Progress)
         self.stats_bar = StatsBar(self, on_toggle_sound=self._on_toggle_sound)
         self.stats_bar.pack(fill="x", padx=12, pady=(0, 4))
 
@@ -220,7 +237,6 @@ class NetworkMonitorApp(ctk.CTk):
         self._apply_display_filters()
 
     def _on_search_keyrelease(self, event=None):
-        """Debounce search by 180ms to avoid freezing on rapid typing."""
         if self._search_after_id:
             self.after_cancel(self._search_after_id)
         self._search_after_id = self.after(180, self._apply_display_filters)
@@ -231,7 +247,6 @@ class NetworkMonitorApp(ctk.CTk):
 
         for card in self.cards:
             dev = card.device
-            # 1. Status Filter Check
             status_match = True
             if filter_mode == "ONLINE":
                 status_match = (dev.status == "Online")
@@ -240,7 +255,6 @@ class NetworkMonitorApp(ctk.CTk):
             elif filter_mode == "CHECKING":
                 status_match = (dev.status == "Checking")
 
-            # 2. Search Query Check
             search_match = True
             if query:
                 name_match = query in dev.name.lower()
@@ -252,7 +266,6 @@ class NetworkMonitorApp(ctk.CTk):
                 search_match = (name_match or ip_match or sub_match)
 
             should_show = status_match and search_match
-
             is_currently_mapped = card.winfo_ismapped()
             if should_show and not is_currently_mapped:
                 card.pack(fill="x", padx=5, pady=4)
@@ -292,6 +305,12 @@ class NetworkMonitorApp(ctk.CTk):
         checking = sum(1 for c in self.cards if c.device.status == "Checking")
         unknown = total - (online + offline + checking)
 
+        target_scope = total
+        if self.scan_mode == "SELECTED":
+            selected_count = sum(1 for c in self.cards if c.is_selected())
+            if selected_count > 0:
+                target_scope = selected_count
+
         stats = NetworkStats(
             total_devices=total,
             online_devices=online,
@@ -299,7 +318,7 @@ class NetworkMonitorApp(ctk.CTk):
             checking_devices=checking,
             unknown_devices=unknown
         )
-        self.stats_bar.update_stats(stats)
+        self.stats_bar.update_stats(stats, target_scope)
         self.filter_bar.update_counts(total, online, offline, checking)
 
     def add_device(self):
@@ -356,33 +375,79 @@ class NetworkMonitorApp(ctk.CTk):
                 card.collapse()
         self.expand_all_btn.configure(text="Collapse All" if self.all_expanded else "Expand All")
 
-    def stop_scan(self):
-        self.stop_requested = True
-        self.ping_btn.configure(text="⚡ Ping Selected", fg_color=Theme.ACCENT_GREEN)
+    # ==========================================
+    # SCANNING CONTROLS & EVENT-DRIVEN ENGINE
+    # ==========================================
 
-    def ping_selected(self):
+    def start_auto_scan(self):
+        """Automatically begins monitoring all branches on launch."""
+        if not self.is_scanning:
+            self.start_scan_all()
+
+    def start_scan_all(self):
+        """Monitors all registered branches in continuous silent background mode."""
+        self.scan_mode = "ALL"
         self.stop_requested = False
+        self._update_button_visuals(running_mode="ALL")
+
         if not self.is_scanning:
             self.is_scanning = True
-            self.ping_btn.configure(text="Scanning...", fg_color="#F59E0B")
-            threading.Thread(target=self._scan_coordinator, daemon=True).start()
+            threading.Thread(target=self._reactive_scan_coordinator, daemon=True).start()
 
-    def _scan_coordinator(self):
-        """High-concurrency scanning loop with handle reuse and state-change alerts."""
+    def start_scan_selected(self):
+        """Monitors only the specifically selected branches."""
+        selected_cards = [c for c in self.cards if c.is_selected()]
+        if not selected_cards:
+            messagebox.showinfo("Selection Required", "Please check at least one device checkbox to scan selected.")
+            return
+
+        self.scan_mode = "SELECTED"
+        self.stop_requested = False
+        self._update_button_visuals(running_mode="SELECTED")
+
+        if not self.is_scanning:
+            self.is_scanning = True
+            threading.Thread(target=self._reactive_scan_coordinator, daemon=True).start()
+
+    def stop_scan(self):
+        """Stops the scanning engine immediately."""
+        self.stop_requested = True
+        self._update_button_visuals(running_mode="STOPPED")
+        self.stats_bar.update_progress(0, 0, status_text="🛑 Stopped")
+
+    def _update_button_visuals(self, running_mode: str):
+        if running_mode == "ALL":
+            self.scan_all_btn.configure(text="⚡ Scanning All...", fg_color="#F59E0B")
+            self.scan_selected_btn.configure(text="🎯 Scan Selected", fg_color="#0284C7")
+        elif running_mode == "SELECTED":
+            self.scan_all_btn.configure(text="⚡ Scan All", fg_color=Theme.ACCENT_GREEN)
+            self.scan_selected_btn.configure(text="🎯 Scanning Sel...", fg_color="#F59E0B")
+        else:
+            self.scan_all_btn.configure(text="⚡ Scan All", fg_color=Theme.ACCENT_GREEN)
+            self.scan_selected_btn.configure(text="🎯 Scan Selected", fg_color="#0284C7")
+
+    def _reactive_scan_coordinator(self):
+        """
+        Reactive background coordinator using State-Diffing.
+        Pings in the background silently ('من تحت لتحت') without full UI wipes.
+        Only repaints cards whose state actually changed, and batches stats updates.
+        """
         with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
             while not self.stop_requested:
-                selected_cards = [c for c in self.cards if c.is_selected()]
+                if self.scan_mode == "SELECTED":
+                    target_cards = [c for c in self.cards if c.is_selected()]
+                else:
+                    target_cards = self.cards
 
-                if not selected_cards:
+                total_in_cycle = len(target_cards)
+                if total_in_cycle == 0:
                     time.sleep(0.5)
                     continue
 
-                for card in selected_cards:
-                    if self.stop_requested:
-                        break
-                    self.after(0, card.set_checking)
+                completed_in_cycle = 0
 
-                def ping_one_card(card: DeviceCard):
+                # Single ping task unit
+                def ping_card_unit(card: DeviceCard):
                     if self.stop_requested:
                         return None
                     p_res = ping(card.device.ip)
@@ -390,18 +455,22 @@ class NetworkMonitorApp(ctk.CTk):
                     return card, p_res, s_res
 
                 futures = {
-                    executor.submit(ping_one_card, card): card
-                    for card in selected_cards
+                    executor.submit(ping_card_unit, card): card
+                    for card in target_cards
                 }
 
+                # Process results as they complete
                 for future in concurrent.futures.as_completed(futures):
                     if self.stop_requested:
                         break
+
                     try:
                         res = future.result()
                         if res:
                             card, p_res, s_res = res
-                            # Check state transition for offline alert
+                            completed_in_cycle += 1
+
+                            # Check state transitions for offline alert
                             prev_status = self._previous_states.get(card.device.ip, "Unknown")
                             new_online, _ = p_res
 
@@ -410,11 +479,13 @@ class NetworkMonitorApp(ctk.CTk):
 
                             self._previous_states[card.device.ip] = "Online" if new_online else "Offline"
 
+                            # Apply state-diffing to card
+                            current_done = completed_in_cycle
                             self.after(
                                 0,
-                                lambda c=card, p=p_res, s=s_res: (
+                                lambda c=card, p=p_res, s=s_res, cnt=current_done: (
                                     c.apply_ping_results(p, s),
-                                    self._refresh_stats()
+                                    self.stats_bar.update_progress(cnt, total_in_cycle)
                                 )
                             )
                     except Exception:
@@ -423,10 +494,21 @@ class NetworkMonitorApp(ctk.CTk):
                 if self.stop_requested:
                     break
 
-                time.sleep(1)
+                # End of cycle: Refresh all stats once atomically
+                self.after(0, self._refresh_stats)
+
+                # Breathing room interval before next round (2 seconds)
+                for _ in range(20):
+                    if self.stop_requested:
+                        break
+                    time.sleep(0.1)
 
         self.is_scanning = False
-        self.after(0, lambda: self.ping_btn.configure(text="⚡ Ping Selected", fg_color=Theme.ACCENT_GREEN))
+        self.after(0, lambda: self._update_button_visuals(running_mode="STOPPED"))
+
+    # ==========================================
+    # IMPORT & EXPORT
+    # ==========================================
 
     def export_excel(self):
         file_path = filedialog.asksaveasfilename(
@@ -467,13 +549,11 @@ class NetworkMonitorApp(ctk.CTk):
         )
 
         if answer:
-            # Append
             existing_ips = {c.device.ip for c in self.cards}
             for d in imported_devices:
                 if d.ip not in existing_ips:
                     self._create_and_pack_card(d)
         else:
-            # Replace
             for c in self.cards:
                 c.destroy()
             self.cards = []

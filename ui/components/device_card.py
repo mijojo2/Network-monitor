@@ -7,7 +7,7 @@ from ui.components.edit_dialog import EditDeviceDialog
 class DeviceCard(ctk.CTkFrame):
     """
     Card widget representing a single parent device and its sub-devices.
-    Includes rich color indicators, status pill badges, and accordion expansion.
+    Includes State-Diffing (BLoC / Reactive) to prevent unnecessary Tkinter widget redraws.
     """
 
     def __init__(self, master, device: Device, on_delete=None, on_update=None, on_selection_change=None):
@@ -27,12 +27,17 @@ class DeviceCard(ctk.CTkFrame):
         self.is_expanded = False
         self.sub_rows = []
 
+        # Internal state-diff tracking
+        self._rendered_status = None
+        self._rendered_latency = None
+        self._rendered_sub_counts = (-1, -1, -1)  # (online, offline, checking)
+
         if not hasattr(self.device, "sub_devices") or self.device.sub_devices is None:
             self.device.sub_devices = []
 
         self._build_header()
         self._build_sub_container()
-        self.update_visual_state()
+        self.update_visual_state(force=True)
 
     def _build_header(self):
         self.header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -145,7 +150,6 @@ class DeviceCard(ctk.CTkFrame):
             border_color=Theme.BORDER_COLOR
         )
 
-        # Header inside sub-container
         sub_inner_header = ctk.CTkFrame(self.sub_container, fg_color="transparent")
         sub_inner_header.pack(fill="x", padx=10, pady=(8, 4))
 
@@ -156,7 +160,6 @@ class DeviceCard(ctk.CTkFrame):
             text_color="#38BDF8"
         ).pack(side="left")
 
-        # Frame holding sub-device rows
         self.sub_list_frame = ctk.CTkFrame(self.sub_container, fg_color="transparent")
         self.sub_list_frame.pack(fill="x", padx=10, pady=4)
 
@@ -204,7 +207,7 @@ class DeviceCard(ctk.CTkFrame):
         def _on_edited(dev):
             self.name_lbl.configure(text=dev.name)
             self.ip_lbl.configure(text=dev.ip)
-            self.update_visual_state()
+            self.update_visual_state(force=True)
             if self.is_expanded:
                 self.render_sub_devices()
             if self.on_update:
@@ -235,96 +238,94 @@ class DeviceCard(ctk.CTkFrame):
         self.render_sub_devices()
         self.sub_container.pack(fill="x", padx=12, pady=(0, 10))
         self.is_expanded = True
-        self.update_visual_state()
+        self.update_visual_state(force=True)
 
     def collapse(self):
         self.sub_container.pack_forget()
         self.is_expanded = False
-        self.update_visual_state()
+        self.update_visual_state(force=True)
 
-    def update_visual_state(self):
-        """Updates borders, dots, pills, and badges to reflect online/offline/checking status."""
+    def update_visual_state(self, force: bool = False):
+        """
+        Applies UI updates conditionally (State-Diffing).
+        If the device state hasn't changed, does ZERO widget repaints.
+        """
         status = self.device.status
+        latency = self.device.latency
         count = len(self.device.sub_devices)
+
+        # 1. Update Expand Button if count changed or forced
         arrow = "▲" if self.is_expanded else "▼"
         self.expand_btn.configure(text=f"{arrow} Sub-devices ({count})")
 
-        if status == "Online":
-            self.status_dot.configure(text=Theme.DOT_SYMBOL, text_color=Theme.ONLINE_DOT)
-            self.status_pill.configure(
-                fg_color=Theme.ONLINE_BG,
-                border_color=Theme.ONLINE_BORDER
-            )
-            self.pill_lbl.configure(
-                text=f"{Theme.DOT_SYMBOL} Online   {self.device.latency}",
-                text_color=Theme.ONLINE_TEXT
-            )
-            self.configure(border_color=Theme.ONLINE_BORDER)
+        # 2. Check if Parent Status or Latency changed
+        status_changed = (status != self._rendered_status) or force
+        latency_changed = (latency != self._rendered_latency)
 
-        elif status == "Offline":
-            self.status_dot.configure(text=Theme.DOT_SYMBOL, text_color=Theme.OFFLINE_DOT)
-            self.status_pill.configure(
-                fg_color=Theme.OFFLINE_BG,
-                border_color=Theme.OFFLINE_BORDER
-            )
-            self.pill_lbl.configure(
-                text=f"{Theme.DOT_SYMBOL} Offline",
-                text_color=Theme.OFFLINE_TEXT
-            )
-            self.configure(border_color=Theme.OFFLINE_BORDER)
+        if status_changed:
+            self._rendered_status = status
+            self._rendered_latency = latency
 
-        elif status == "Checking":
-            self.status_dot.configure(text=Theme.DOT_SYMBOL, text_color=Theme.CHECKING_DOT)
-            self.status_pill.configure(
-                fg_color=Theme.CHECKING_BG,
-                border_color=Theme.CHECKING_BORDER
-            )
-            self.pill_lbl.configure(
-                text=f"{Theme.DOT_SYMBOL} Checking...",
-                text_color=Theme.CHECKING_TEXT
-            )
-            self.configure(border_color=Theme.CHECKING_BORDER)
+            if status == "Online":
+                self.status_dot.configure(text=Theme.DOT_SYMBOL, text_color=Theme.ONLINE_DOT)
+                self.status_pill.configure(fg_color=Theme.ONLINE_BG, border_color=Theme.ONLINE_BORDER)
+                self.pill_lbl.configure(text=f"{Theme.DOT_SYMBOL} Online   {latency}", text_color=Theme.ONLINE_TEXT)
+                self.configure(border_color=Theme.ONLINE_BORDER)
 
-        else:
-            self.status_dot.configure(text=Theme.DOT_SYMBOL, text_color=Theme.UNKNOWN_DOT)
-            self.status_pill.configure(
-                fg_color=Theme.UNKNOWN_BG,
-                border_color=Theme.UNKNOWN_BORDER
-            )
-            self.pill_lbl.configure(
-                text=f"{Theme.DOT_SYMBOL} Unknown",
-                text_color=Theme.UNKNOWN_TEXT
-            )
-            self.configure(border_color=Theme.BORDER_COLOR)
+            elif status == "Offline":
+                self.status_dot.configure(text=Theme.DOT_SYMBOL, text_color=Theme.OFFLINE_DOT)
+                self.status_pill.configure(fg_color=Theme.OFFLINE_BG, border_color=Theme.OFFLINE_BORDER)
+                self.pill_lbl.configure(text=f"{Theme.DOT_SYMBOL} Offline", text_color=Theme.OFFLINE_TEXT)
+                self.configure(border_color=Theme.OFFLINE_BORDER)
 
-        # Sub-badge summary
-        if count == 0:
-            self.sub_badge.configure(text="")
-        else:
-            online_c = sum(1 for s in self.device.sub_devices if s.status == "Online")
-            offline_c = sum(1 for s in self.device.sub_devices if s.status == "Offline")
-            checking_c = sum(1 for s in self.device.sub_devices if s.status == "Checking")
+            elif status == "Checking":
+                self.status_dot.configure(text=Theme.DOT_SYMBOL, text_color=Theme.CHECKING_DOT)
+                self.status_pill.configure(fg_color=Theme.CHECKING_BG, border_color=Theme.CHECKING_BORDER)
+                self.pill_lbl.configure(text=f"{Theme.DOT_SYMBOL} Checking...", text_color=Theme.CHECKING_TEXT)
+                self.configure(border_color=Theme.CHECKING_BORDER)
 
-            if checking_c > 0:
-                self.sub_badge.configure(
-                    text=f"{Theme.DOT_SYMBOL} Sub: Checking ({count})",
-                    text_color=Theme.CHECKING_TEXT
-                )
-            elif online_c == count and count > 0:
-                self.sub_badge.configure(
-                    text=f"{Theme.DOT_SYMBOL} Sub: {online_c}/{count} Online",
-                    text_color=Theme.ONLINE_TEXT
-                )
-            elif offline_c > 0:
-                self.sub_badge.configure(
-                    text=f"{Theme.DOT_SYMBOL} Sub: {offline_c}/{count} Offline",
-                    text_color=Theme.OFFLINE_TEXT
-                )
             else:
-                self.sub_badge.configure(
-                    text=f"📌 {count} Sub-devices",
-                    text_color="#94A3B8"
-                )
+                self.status_dot.configure(text=Theme.DOT_SYMBOL, text_color=Theme.UNKNOWN_DOT)
+                self.status_pill.configure(fg_color=Theme.UNKNOWN_BG, border_color=Theme.UNKNOWN_BORDER)
+                self.pill_lbl.configure(text=f"{Theme.DOT_SYMBOL} Unknown", text_color=Theme.UNKNOWN_TEXT)
+                self.configure(border_color=Theme.BORDER_COLOR)
+
+        elif latency_changed and status == "Online":
+            # Fast-path: Only update text in pill label, no frame reconfiguration
+            self._rendered_latency = latency
+            self.pill_lbl.configure(text=f"{Theme.DOT_SYMBOL} Online   {latency}")
+
+        # 3. Sub-device Summary Badge Diffing
+        online_c = sum(1 for s in self.device.sub_devices if s.status == "Online")
+        offline_c = sum(1 for s in self.device.sub_devices if s.status == "Offline")
+        checking_c = sum(1 for s in self.device.sub_devices if s.status == "Checking")
+        current_sub_counts = (online_c, offline_c, checking_c)
+
+        if current_sub_counts != self._rendered_sub_counts or force:
+            self._rendered_sub_counts = current_sub_counts
+            if count == 0:
+                self.sub_badge.configure(text="")
+            else:
+                if checking_c > 0:
+                    self.sub_badge.configure(
+                        text=f"{Theme.DOT_SYMBOL} Sub: Checking ({count})",
+                        text_color=Theme.CHECKING_TEXT
+                    )
+                elif online_c == count and count > 0:
+                    self.sub_badge.configure(
+                        text=f"{Theme.DOT_SYMBOL} Sub: {online_c}/{count} Online",
+                        text_color=Theme.ONLINE_TEXT
+                    )
+                elif offline_c > 0:
+                    self.sub_badge.configure(
+                        text=f"{Theme.DOT_SYMBOL} Sub: {offline_c}/{count} Offline",
+                        text_color=Theme.OFFLINE_TEXT
+                    )
+                else:
+                    self.sub_badge.configure(
+                        text=f"📌 {count} Sub-devices",
+                        text_color="#94A3B8"
+                    )
 
     def render_sub_devices(self):
         for child in self.sub_list_frame.winfo_children():
@@ -350,7 +351,6 @@ class DeviceCard(ctk.CTkFrame):
             )
             row.pack(fill="x", pady=2, padx=5)
 
-            # Status dot with solid color
             s_color = Theme.UNKNOWN_DOT
             s_text = f"{Theme.DOT_SYMBOL} Unknown"
             t_color = Theme.UNKNOWN_TEXT
@@ -442,7 +442,7 @@ class DeviceCard(ctk.CTkFrame):
             self.on_update()
 
         self.render_sub_devices()
-        self.update_visual_state()
+        self.update_visual_state(force=True)
 
     def delete_sub_device(self, idx: int):
         if 0 <= idx < len(self.device.sub_devices):
@@ -450,7 +450,7 @@ class DeviceCard(ctk.CTkFrame):
             if self.on_update:
                 self.on_update()
             self.render_sub_devices()
-            self.update_visual_state()
+            self.update_visual_state(force=True)
 
     def set_checking(self):
         self.device.status = "Checking"
@@ -463,23 +463,44 @@ class DeviceCard(ctk.CTkFrame):
                 row["dot"].configure(text_color=Theme.CHECKING_DOT)
                 row["status"].configure(text=f"{Theme.DOT_SYMBOL} Checking...", text_color=Theme.CHECKING_TEXT)
 
-    def apply_ping_results(self, parent_result, sub_results):
+    def apply_ping_results(self, parent_result, sub_results) -> bool:
+        """
+        Applies ping results with State-Diffing.
+        Returns True if ANY visible status changed (to inform batch stats updates).
+        """
         p_online, p_latency = parent_result
-        self.device.status = "Online" if p_online else "Offline"
-        self.device.latency = p_latency if p_online else "-"
+        new_status = "Online" if p_online else "Offline"
+        new_latency = p_latency if p_online else "-"
 
+        parent_status_changed = (new_status != self.device.status)
+        parent_latency_changed = (new_status == "Online" and new_latency != self.device.latency)
+
+        self.device.status = new_status
+        self.device.latency = new_latency
+
+        subs_changed = False
         for idx, (s_online, s_latency) in enumerate(sub_results):
             if idx < len(self.device.sub_devices):
                 sub = self.device.sub_devices[idx]
-                sub.status = "Online" if s_online else "Offline"
-                sub.latency = s_latency if s_online else "-"
+                s_new_status = "Online" if s_online else "Offline"
+                s_new_latency = s_latency if s_online else "-"
 
-                if idx < len(self.sub_rows):
-                    row = self.sub_rows[idx]
-                    dot_c = Theme.ONLINE_DOT if s_online else Theme.OFFLINE_DOT
-                    txt_c = Theme.ONLINE_TEXT if s_online else Theme.OFFLINE_TEXT
-                    lbl_t = f"{Theme.DOT_SYMBOL} Online   {s_latency}" if s_online else f"{Theme.DOT_SYMBOL} Offline"
-                    row["dot"].configure(text_color=dot_c)
-                    row["status"].configure(text=lbl_t, text_color=txt_c)
+                if s_new_status != sub.status or (s_new_status == "Online" and s_new_latency != sub.latency):
+                    subs_changed = True
+                    sub.status = s_new_status
+                    sub.latency = s_new_latency
 
-        self.update_visual_state()
+                    # Targeted sub-row repaint only if expanded
+                    if self.is_expanded and idx < len(self.sub_rows):
+                        row = self.sub_rows[idx]
+                        dot_c = Theme.ONLINE_DOT if s_online else Theme.OFFLINE_DOT
+                        txt_c = Theme.ONLINE_TEXT if s_online else Theme.OFFLINE_TEXT
+                        lbl_t = f"{Theme.DOT_SYMBOL} Online   {s_latency}" if s_online else f"{Theme.DOT_SYMBOL} Offline"
+                        row["dot"].configure(text_color=dot_c)
+                        row["status"].configure(text=lbl_t, text_color=txt_c)
+
+        state_changed = parent_status_changed or subs_changed
+        if state_changed or parent_latency_changed:
+            self.update_visual_state(force=False)
+
+        return state_changed
