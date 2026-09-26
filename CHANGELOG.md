@@ -21,9 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cycle-end status notifications display the exact names of newly dropped branches (e.g. `🔔 ALERT: [Name] went Offline!`).
 
 ### Changed
-- **Smooth 60 FPS Scrolling Velocity**:
+- **Smooth 60 FPS Scrolling Velocity & Viewport Synchronization**:
   - Removed full-window raster background image compositing, freeing up GDI rendering performance for pure 60 FPS scrolling.
   - Implemented accelerated mousewheel scrolling via `_setup_smooth_scrolling` with 40px velocity per notch for fluid gliding through cards.
+  - Synchronized scroll viewport to automatically reset to top (`yview_moveto(0.0)`) upon typing a search query or toggling filters, preventing empty blank areas.
 - **Strict Chronological Ordering on Tab Switches**:
   - Resolved filter tab order bug: switching from `Offline` back to `All` now strictly re-intertwines branches by `last_seen` timestamp rather than stacking offline cards at the top.
 - **Zero-Delay Cycle-End Audio Alerts**:

@@ -321,6 +321,12 @@ class NetworkMonitorApp(ctk.CTk):
         for card in matching_cards:
             card.pack(fill="x", padx=5, pady=4)
 
+        # Smoothly reset scroll position to top on filter or search change
+        try:
+            self.device_frame._parent_canvas.yview_moveto(0.0)
+        except Exception:
+            pass
+
     def load_devices(self):
         for card in self.cards:
             card.destroy()
