@@ -265,18 +265,23 @@ class NetworkMonitorApp(ctk.CTk):
                 if card.winfo_ismapped():
                     card.refresh_last_seen_display()
 
-            # 2. If viewing OFFLINE_5M tab, dynamically show branches that just reached 5m
-            if getattr(self, "active_status_filter", "ALL") == "OFFLINE_5M":
+            # 2. Dynamic visibility sync: remove cards that recovered or no longer match, add newly matched cards
+            has_filter = (
+                self.active_status_filter != "ALL" or
+                getattr(self, "active_server_filter", "ALL") != "ALL" or
+                getattr(self, "active_type_filter", "ALL") != "ALL" or
+                bool(self.search.get().strip())
+            )
+            if has_filter:
                 for card in self.cards:
-                    if card.device.status == "Offline":
-                        is_mapped = card.winfo_ismapped()
-                        matches = self._card_matches_filter_and_search(card)
-                        if matches and not is_mapped:
-                            card.pack(fill="x", padx=5, pady=4)
-                        elif not matches and is_mapped:
-                            card.pack_forget()
+                    is_mapped = card.winfo_ismapped()
+                    matches = self._card_matches_filter_and_search(card)
+                    if matches and not is_mapped:
+                        card.pack(fill="x", padx=5, pady=4)
+                    elif not matches and is_mapped:
+                        card.pack_forget()
 
-            # 3. Refresh live tab counts so 'Offline >5m' badge count ticks live
+            # 3. Refresh live tab counts so tab badges stay accurate in real time
             self._refresh_stats()
 
         except Exception:
@@ -705,8 +710,14 @@ class NetworkMonitorApp(ctk.CTk):
         def _apply():
             for card, p_res, s_res in batch:
                 card.apply_ping_results(p_res, s_res)
-                # Keep active filter view accurate in real time
-                if self.active_status_filter != "ALL":
+                # Keep active filter view accurate in real time across Status, Server, Type, and Search
+                has_active_filter = (
+                    self.active_status_filter != "ALL" or
+                    getattr(self, "active_server_filter", "ALL") != "ALL" or
+                    getattr(self, "active_type_filter", "ALL") != "ALL" or
+                    bool(self.search.get().strip())
+                )
+                if has_active_filter:
                     self._check_card_filter_visibility(card)
             self.stats_bar.update_progress(completed, total)
         self.after(0, _apply)

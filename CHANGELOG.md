@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.2] - 2026-09-26
+### Fixed
+- **Automatic Removal of Recovered Servers from `Server Down` View**:
+  - Fixed an issue where recovered servers (`Online`) lingered in the `🔴 Server Down` view until the user manually clicked the tab button again.
+  - Expanded live visibility synchronization in `_dispatch_ping_batch`: now checks active filter constraints across Status, Server, Type, and Search simultaneously, instead of only checking `active_status_filter != 'ALL'`.
+  - Added real-time self-healing in `_tick_live_durations`: cards that no longer match the active filter criteria (such as branches whose server came back Online) are automatically hidden (`pack_forget()`) in real time, and tab counters immediately decrement to reflect the accurate count.
+
+---
+
 ## [1.4.1] - 2026-09-26
 ### Added
 - **Live Outage Minute Progression Counter & Background Ticker**:
