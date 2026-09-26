@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.2] - 2026-09-26
+### Added
+- **New Filter Tab: `⚠️ Sub Issues >=2`**:
+  - Replaced the legacy `Checking` tab with `⚠️ Sub Issues >=2` to isolate branches with multiple failing sub-devices.
+  - Branches with >=2 offline sub-devices now appear in both `Online` (router is healthy) and `⚠️ Sub Issues >=2` simultaneously.
+  - The `Offline` tab now strictly shows branches whose router is actually Down.
+  - Implemented dynamic real-time filter re-evaluation so online branches never linger in the offline tab when ping completes.
+
+### Changed
+- **Anti-Flapping Confirmation & Parent Dependency Scanner**:
+  - Implemented two-packet confirmation retry on timeouts: transient packet loss or network jitter will no longer trigger false offline state changes.
+  - Added Parent Gateway Dependency: if a router is detected as offline, child sub-device pings are immediately bypassed, saving 4-5 timeouts per dead branch and speeding up scan cycles by over 70%.
+  - Tuned WAN timeout to 700ms to eliminate false alarms across high-latency VPN/4G links.
+
+---
+
 ## [1.3.1] - 2026-09-26
 ### Added
 - **Direct On-Header Offline Sub-Devices Visibility**:

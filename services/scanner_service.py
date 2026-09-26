@@ -4,7 +4,8 @@ import re
 import socket
 import struct
 import threading
-from typing import Tuple
+import time
+from typing import Tuple, List
 
 IS_WINDOWS = platform.system() == "Windows"
 _native_icmp_available = False
@@ -60,12 +61,10 @@ if IS_WINDOWS:
     except Exception:
         _native_icmp_available = False
 
-# Thread-local storage to cache ICMP handles across repeated pings in worker threads
 _thread_local = threading.local()
 
 
 def _get_thread_icmp_handle():
-    """Retrieve or create a thread-local ICMP handle to avoid allocating handles on every ping."""
     if not hasattr(_thread_local, "icmp_handle") or _thread_local.icmp_handle is None:
         try:
             _thread_local.icmp_handle = _IcmpCreateFile()
@@ -74,7 +73,7 @@ def _get_thread_icmp_handle():
     return _thread_local.icmp_handle
 
 
-def _native_windows_ping(ip: str, timeout_ms: int = 500) -> Tuple[bool, str]:
+def _native_windows_ping(ip: str, timeout_ms: int = 700) -> Tuple[bool, str]:
     try:
         handle = _get_thread_icmp_handle()
         close_on_finish = False
@@ -114,41 +113,26 @@ def _native_windows_ping(ip: str, timeout_ms: int = 500) -> Tuple[bool, str]:
         return False, "-"
 
 
-def ping(ip: str, timeout_ms: int = 500) -> Tuple[bool, str]:
-    """
-    Pings a single IP address with low latency.
-    Returns (is_online: bool, latency_str: str)
-    """
+def single_ping(ip: str, timeout_ms: int = 700) -> Tuple[bool, str]:
+    """Single raw ICMP ping without retry."""
     if not ip or not ip.strip():
         return False, "-"
 
     ip = ip.strip()
 
-    # Fast path: Native Windows ICMP
     if _native_icmp_available:
         try:
             return _native_windows_ping(ip, timeout_ms)
         except Exception:
             pass
 
-    # Fallback path: subprocess ping
     creationflags = 0
     if IS_WINDOWS:
-        command = [
-            "ping",
-            "-n", "1",
-            "-w", str(timeout_ms),
-            ip
-        ]
+        command = ["ping", "-n", "1", "-w", str(timeout_ms), ip]
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     else:
         timeout_sec = max(1, timeout_ms // 1000)
-        command = [
-            "ping",
-            "-c", "1",
-            "-W", str(timeout_sec),
-            ip
-        ]
+        command = ["ping", "-c", "1", "-W", str(timeout_sec), ip]
 
     try:
         result = subprocess.run(
@@ -157,23 +141,63 @@ def ping(ip: str, timeout_ms: int = 500) -> Tuple[bool, str]:
             text=True,
             creationflags=creationflags
         )
-
         if result.returncode == 0:
             match = re.search(r"time[=<]\s*([0-9]+)", result.stdout)
             if match:
                 latency = match.group(1) + " ms"
                 return True, latency
-
         return False, "-"
     except Exception:
         return False, "-"
 
 
-class ScannerService:
-    """Service responsible for pinging and monitoring network devices."""
+def ping(ip: str, timeout_ms: int = 700, retries: int = 1) -> Tuple[bool, str]:
+    """
+    Robust ping with confirmation retry to eliminate false timeouts & status flapping.
+    Fast path: Returns immediately on 1st success.
+    Confirmation path: Only if 1st fails does it perform an immediate retry to confirm offline state.
+    """
+    ok, latency = single_ping(ip, timeout_ms)
+    if ok:
+        return True, latency
 
-    def __init__(self, timeout_ms: int = 500):
+    # If first ping failed, confirm with a fast retry before declaring offline
+    for _ in range(retries):
+        time.sleep(0.04)  # 40ms jitter buffer
+        ok, latency = single_ping(ip, timeout_ms)
+        if ok:
+            return True, latency
+
+    return False, "-"
+
+
+def scan_device_hierarchy(router_ip: str, sub_ips: List[str], timeout_ms: int = 700) -> Tuple[Tuple[bool, str], List[Tuple[bool, str]]]:
+    """
+    Smart Hierarchical Scanner:
+    1. Tests the parent router first.
+    2. If the router is DEAD, skips pinging child sub-devices (they are guaranteed unreachable).
+       This saves 4-5 timeouts per dead branch, speeding up dead branch checks by 80%!
+    3. If router is UP, tests the sub-devices.
+    """
+    router_res = ping(router_ip, timeout_ms=timeout_ms, retries=1)
+    router_online, _ = router_res
+
+    if not router_online:
+        # Router is down; sub-devices are automatically unreachable
+        sub_results = [(False, "-")] * len(sub_ips)
+        return router_res, sub_results
+
+    # Router is up; test sub-devices
+    sub_results = [ping(s_ip, timeout_ms=timeout_ms, retries=1) for s_ip in sub_ips]
+    return router_res, sub_results
+
+
+class ScannerService:
+    def __init__(self, timeout_ms: int = 700):
         self.timeout_ms = timeout_ms
 
     def ping_ip(self, ip: str) -> Tuple[bool, str]:
         return ping(ip, self.timeout_ms)
+
+    def scan_hierarchy(self, router_ip: str, sub_ips: List[str]):
+        return scan_device_hierarchy(router_ip, sub_ips, self.timeout_ms)

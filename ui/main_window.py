@@ -7,7 +7,7 @@ from typing import List, Optional
 from PIL import Image
 
 from core.models import Device, NetworkStats, get_default_sub_devices
-from services.scanner_service import ScannerService, ping
+from services.scanner_service import ScannerService, ping, scan_device_hierarchy
 from services.storage_service import StorageService
 from services.excel_service import ExcelService
 from services.alert_service import AlertService
@@ -19,8 +19,8 @@ from ui.components.filter_bar import FilterBar
 
 class NetworkMonitorApp(ctk.CTk):
     """
-    Main Application Window built on Clean Architecture and Reactive State-Diffing.
-    Includes Auto-start, Selective Pinging, Batched Ping Dispatches, and High-Performance Background Coordinator.
+    Main Application Window built on Clean Architecture, Reactive State-Diffing,
+    and Smart Hierarchical Scanning with Anti-Flapping verification.
     """
 
     def __init__(self):
@@ -28,10 +28,10 @@ class NetworkMonitorApp(ctk.CTk):
 
         # Services
         self.storage_service = StorageService()
-        self.scanner_service = ScannerService(timeout_ms=500)
+        self.scanner_service = ScannerService(timeout_ms=700)
         self.alert_service = AlertService(sound_enabled=True)
 
-        # Persistent Thread Pool to avoid re-allocating 50 OS threads every cycle
+        # Persistent Thread Pool
         self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=50)
 
         # State
@@ -40,7 +40,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.is_scanning = False
         self.scan_mode = "ALL"  # "ALL" or "SELECTED"
         self.all_expanded = False
-        self.active_status_filter = "ALL"
+        self.active_status_filter = "ALL"  # "ALL", "ONLINE", "OFFLINE", "SUB_ISSUES"
         self._search_after_id = None
         self._previous_states = {}  # Tracks IP -> status for offline alerts
 
@@ -73,7 +73,6 @@ class NetworkMonitorApp(ctk.CTk):
             self.configure(fg_color=Theme.BG_DARK)
 
     def _on_window_closing(self):
-        """Cleanly halts background threads and closes application."""
         self.stop_requested = True
         try:
             self.executor.shutdown(wait=False, cancel_futures=True)
@@ -224,11 +223,11 @@ class NetworkMonitorApp(ctk.CTk):
         self.search.pack(side="right", padx=(4, 10), pady=8)
         self.search.bind("<KeyRelease>", self._on_search_keyrelease)
 
-        # 2. Live Dashboard Stats Bar (Shows 'X/Y' Ratios and Progress)
+        # 2. Live Dashboard Stats Bar
         self.stats_bar = StatsBar(self, on_toggle_sound=self._on_toggle_sound)
         self.stats_bar.pack(fill="x", padx=12, pady=(0, 4))
 
-        # 3. Quick Status Filter Bar
+        # 3. Quick Status Filter Bar (With Sub Issues Tab)
         filter_container = ctk.CTkFrame(self, fg_color="transparent")
         filter_container.pack(fill="x", padx=12, pady=(2, 4))
         self.filter_bar = FilterBar(filter_container, on_filter_change=self._on_filter_changed)
@@ -256,36 +255,52 @@ class NetworkMonitorApp(ctk.CTk):
             self.after_cancel(self._search_after_id)
         self._search_after_id = self.after(180, self._apply_display_filters)
 
-    def _apply_display_filters(self):
-        query = self.search.get().strip().lower()
+    def _card_matches_filter_and_search(self, card: DeviceCard) -> bool:
+        """Determines if a card matches the current filter tab and search query."""
+        dev = card.device
         filter_mode = self.active_status_filter
+        offline_subs_count = sum(1 for s in dev.sub_devices if s.status == "Offline")
 
+        # 1. Filter Tab Logic
+        status_match = True
+        if filter_mode == "ONLINE":
+            # Shows all branches where router is UP (even if some sub-devices are down)
+            status_match = (dev.status == "Online")
+        elif filter_mode == "OFFLINE":
+            # Shows ONLY branches where the router itself is DOWN
+            status_match = (dev.status == "Offline")
+        elif filter_mode == "SUB_ISSUES":
+            # Shows branches where router is UP, BUT at least 2 sub-devices are DOWN
+            status_match = (dev.status == "Online" and offline_subs_count >= 2)
+
+        if not status_match:
+            return False
+
+        # 2. Search Query Logic
+        query = self.search.get().strip().lower()
+        if query:
+            name_match = query in dev.name.lower()
+            ip_match = query in dev.ip.lower()
+            sub_match = any(
+                query in s.name.lower() or query in s.ip.lower()
+                for s in dev.sub_devices
+            )
+            return (name_match or ip_match or sub_match)
+
+        return True
+
+    def _check_card_filter_visibility(self, card: DeviceCard):
+        """Dynamically adjusts a single card's visibility when its ping state updates."""
+        should_show = self._card_matches_filter_and_search(card)
+        is_mapped = card.winfo_ismapped()
+        if should_show and not is_mapped:
+            card.pack(fill="x", padx=5, pady=4)
+        elif not should_show and is_mapped:
+            card.pack_forget()
+
+    def _apply_display_filters(self):
         for card in self.cards:
-            dev = card.device
-            status_match = True
-            if filter_mode == "ONLINE":
-                status_match = (dev.status == "Online")
-            elif filter_mode == "OFFLINE":
-                status_match = (dev.status == "Offline")
-            elif filter_mode == "CHECKING":
-                status_match = (dev.status == "Checking")
-
-            search_match = True
-            if query:
-                name_match = query in dev.name.lower()
-                ip_match = query in dev.ip.lower()
-                sub_match = any(
-                    query in s.name.lower() or query in s.ip.lower()
-                    for s in dev.sub_devices
-                )
-                search_match = (name_match or ip_match or sub_match)
-
-            should_show = status_match and search_match
-            is_currently_mapped = card.winfo_ismapped()
-            if should_show and not is_currently_mapped:
-                card.pack(fill="x", padx=5, pady=4)
-            elif not should_show and is_currently_mapped:
-                card.pack_forget()
+            self._check_card_filter_visibility(card)
 
     def load_devices(self):
         for card in self.cards:
@@ -317,8 +332,11 @@ class NetworkMonitorApp(ctk.CTk):
         total = len(self.cards)
         online = sum(1 for c in self.cards if c.device.status == "Online")
         offline = sum(1 for c in self.cards if c.device.status == "Offline")
-        checking = sum(1 for c in self.cards if c.device.status == "Checking")
-        unknown = total - (online + offline + checking)
+        sub_issues = sum(
+            1 for c in self.cards
+            if c.device.status == "Online" and sum(1 for s in c.device.sub_devices if s.status == "Offline") >= 2
+        )
+        unknown = total - (online + offline)
 
         target_scope = total
         if self.scan_mode == "SELECTED":
@@ -330,11 +348,11 @@ class NetworkMonitorApp(ctk.CTk):
             total_devices=total,
             online_devices=online,
             offline_devices=offline,
-            checking_devices=checking,
+            checking_devices=0,
             unknown_devices=unknown
         )
         self.stats_bar.update_stats(stats, target_scope)
-        self.filter_bar.update_counts(total, online, offline, checking)
+        self.filter_bar.update_counts(total, online, offline, sub_issues)
 
     def add_device(self):
         name = self.name_entry.get().strip()
@@ -397,7 +415,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.expand_all_btn.configure(text="Collapse All" if self.all_expanded else "Expand All")
 
     # ==========================================
-    # SCANNING CONTROLS & BATCHED EVENT-DRIVEN ENGINE
+    # SCANNING CONTROLS & SMART HIERARCHICAL SCANNER
     # ==========================================
 
     def start_auto_scan(self):
@@ -448,17 +466,25 @@ class NetworkMonitorApp(ctk.CTk):
             self.scan_selected_btn.configure(text="🎯 Scan Selected", fg_color="#0284C7")
 
     def _dispatch_ping_batch(self, batch, completed: int, total: int):
-        """Dispatches an entire batch of ping results in a single UI tick (cuts GUI interrupts by 90%)."""
+        """
+        Dispatches an entire batch of ping results in a single UI tick.
+        Dynamically adjusts card filter presence so online branches don't linger in offline tab.
+        """
         def _apply():
             for card, p_res, s_res in batch:
                 card.apply_ping_results(p_res, s_res)
+                # Keep active filter view accurate in real time
+                if self.active_status_filter != "ALL":
+                    self._check_card_filter_visibility(card)
             self.stats_bar.update_progress(completed, total)
         self.after(0, _apply)
 
     def _reactive_scan_coordinator(self):
         """
-        High-throughput reactive background coordinator.
-        Uses Batched Result Flushes and State-Diffing to maintain 60 FPS UI responsiveness.
+        Smart Reactive Scanner:
+        1. Hierarchical ping: If router is down, immediately marks sub-devices down (skips 5 timeouts).
+        2. Anti-flapping: Confirms timeouts with immediate retry to eliminate false drops.
+        3. Batched dispatches: Smooth 60 FPS UI without main-thread flooding.
         """
         while not self.stop_requested:
             if self.scan_mode == "SELECTED":
@@ -473,12 +499,12 @@ class NetworkMonitorApp(ctk.CTk):
 
             completed_in_cycle = 0
 
-            # Single ping unit
+            # Smart hierarchical ping task
             def ping_card_unit(card: DeviceCard):
                 if self.stop_requested:
                     return None
-                p_res = ping(card.device.ip)
-                s_res = [ping(s.ip) for s in card.device.sub_devices]
+                sub_ips = [s.ip for s in card.device.sub_devices]
+                p_res, s_res = scan_device_hierarchy(card.device.ip, sub_ips, timeout_ms=700)
                 return card, p_res, s_res
 
             futures = {
@@ -486,7 +512,6 @@ class NetworkMonitorApp(ctk.CTk):
                 for card in target_cards
             }
 
-            # Batch accumulator to eliminate GUI event loop flooding
             batch = []
 
             for future in concurrent.futures.as_completed(futures):
@@ -499,7 +524,7 @@ class NetworkMonitorApp(ctk.CTk):
                         card, p_res, s_res = res
                         completed_in_cycle += 1
 
-                        # Check state transition for offline alert
+                        # State transition check for sound alerts
                         prev_status = self._previous_states.get(card.device.ip, "Unknown")
                         new_online, _ = p_res
 
@@ -510,21 +535,19 @@ class NetworkMonitorApp(ctk.CTk):
 
                         batch.append((card, p_res, s_res))
 
-                        # Flush batch every 12 cards to keep UI fluid
                         if len(batch) >= 12:
                             self._dispatch_ping_batch(list(batch), completed_in_cycle, total_in_cycle)
                             batch.clear()
                 except Exception:
                     pass
 
-            # Flush any remaining items in batch
             if batch and not self.stop_requested:
                 self._dispatch_ping_batch(list(batch), completed_in_cycle, total_in_cycle)
 
             if self.stop_requested:
                 break
 
-            # End of cycle: Refresh all stats once atomically
+            # Cycle complete: atomic stats refresh
             self.after(0, self._refresh_stats)
 
             # Breathing interval before next cycle (2 seconds)
