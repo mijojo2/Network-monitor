@@ -1,4 +1,5 @@
 import time
+import tkinter as tk
 import customtkinter as ctk
 from core.models import Device, SubDevice
 from ui.theme import Theme
@@ -204,56 +205,71 @@ class DeviceCard(ctk.CTkFrame):
             border_color=Theme.BORDER_COLOR
         )
 
-        sub_inner_header = ctk.CTkFrame(self.sub_container, fg_color="transparent")
+        sub_inner_header = tk.Frame(self.sub_container, bg=Theme.CONTAINER_BG)
         sub_inner_header.pack(fill="x", padx=10, pady=(8, 4))
 
-        ctk.CTkLabel(
+        tk.Label(
             sub_inner_header,
             text="📁 Sub-Devices (pinged alongside parent branch)",
-            font=(Theme.FONT_FAMILY, 12, "bold"),
-            text_color="#38BDF8"
+            font=(Theme.FONT_FAMILY, 11, "bold"),
+            fg="#38BDF8",
+            bg=Theme.CONTAINER_BG
         ).pack(side="left")
 
-        self.sub_list_frame = ctk.CTkFrame(self.sub_container, fg_color="transparent")
-        self.sub_list_frame.pack(fill="x", padx=10, pady=4)
+        self.sub_list_frame = tk.Frame(self.sub_container, bg=Theme.CONTAINER_BG)
+        self.sub_list_frame.pack(fill="x", padx=8, pady=2)
 
         # Add Sub-Device inline form
-        add_frame = ctk.CTkFrame(self.sub_container, fg_color="transparent")
-        add_frame.pack(fill="x", padx=10, pady=(4, 10))
+        add_frame = tk.Frame(self.sub_container, bg=Theme.CONTAINER_BG)
+        add_frame.pack(fill="x", padx=8, pady=(4, 8))
 
-        ctk.CTkLabel(
+        tk.Label(
             add_frame,
             text="Add Sub-Device:",
-            font=(Theme.FONT_FAMILY, 11, "bold"),
-            text_color="#94A3B8"
-        ).pack(side="left", padx=(0, 8))
+            font=(Theme.FONT_FAMILY, 10, "bold"),
+            fg="#94A3B8",
+            bg=Theme.CONTAINER_BG
+        ).pack(side="left", padx=(0, 6))
 
-        self.new_sub_name = ctk.CTkEntry(
+        self.new_sub_name = tk.Entry(
             add_frame,
-            placeholder_text="Name (e.g. Switch 1)",
-            width=160,
-            height=28
+            font=(Theme.FONT_FAMILY, 10),
+            bg=Theme.PANEL_BG,
+            fg="#F1F5F9",
+            insertbackground="white",
+            bd=1,
+            relief="solid",
+            width=16
         )
         self.new_sub_name.pack(side="left", padx=4)
         self.new_sub_name.bind("<Return>", lambda e: self.add_sub_device())
 
-        self.new_sub_ip = ctk.CTkEntry(
+        self.new_sub_ip = tk.Entry(
             add_frame,
-            placeholder_text="IP (e.g. 192.168.1.10)",
-            width=150,
-            height=28
+            font=(Theme.MONO_FONT, 10),
+            bg=Theme.PANEL_BG,
+            fg="#38BDF8",
+            insertbackground="white",
+            bd=1,
+            relief="solid",
+            width=16
         )
         self.new_sub_ip.pack(side="left", padx=4)
         self.new_sub_ip.bind("<Return>", lambda e: self.add_sub_device())
 
-        ctk.CTkButton(
+        tk.Button(
             add_frame,
             text="➕ Add",
-            font=(Theme.FONT_FAMILY, 11, "bold"),
-            width=65,
-            height=28,
-            fg_color=Theme.ACCENT_BLUE,
-            hover_color=Theme.ACCENT_BLUE_HOVER,
+            font=(Theme.FONT_FAMILY, 9, "bold"),
+            bg=Theme.ACCENT_BLUE,
+            fg="white",
+            activebackground=Theme.ACCENT_BLUE_HOVER,
+            activeforeground="white",
+            bd=0,
+            relief="flat",
+            padx=8,
+            pady=2,
+            cursor="hand2",
             command=self.add_sub_device
         ).pack(side="left", padx=6)
 
@@ -291,10 +307,12 @@ class DeviceCard(ctk.CTkFrame):
     def expand(self):
         if self.sub_container is None:
             self._build_sub_container()
-        self.render_sub_devices()
-        self.sub_container.pack(fill="x", padx=12, pady=(0, 10))
+        if not self.sub_rows:
+            self.render_sub_devices()
+        if not self.sub_container.winfo_ismapped():
+            self.sub_container.pack(fill="x", padx=12, pady=(0, 10))
         self.is_expanded = True
-        self.update_visual_state(force=True)
+        self.update_visual_state(force=False)
 
     def collapse(self):
         if self.sub_container is not None:
@@ -413,23 +431,24 @@ class DeviceCard(ctk.CTkFrame):
         self.sub_rows = []
 
         if not self.device.sub_devices:
-            lbl = ctk.CTkLabel(
+            lbl = tk.Label(
                 self.sub_list_frame,
                 text="No sub-devices added yet. Add one below to ping it with this branch.",
-                font=(Theme.FONT_FAMILY, 11, "italic"),
-                text_color="#64748B"
+                font=(Theme.FONT_FAMILY, 10, "italic"),
+                fg="#64748B",
+                bg=Theme.CONTAINER_BG
             )
-            lbl.pack(pady=8, anchor="w", padx=10)
+            lbl.pack(pady=6, anchor="w", padx=8)
             return
 
         for idx, sub in enumerate(self.device.sub_devices):
-            row = ctk.CTkFrame(
+            row = tk.Frame(
                 self.sub_list_frame,
-                fg_color=Theme.PANEL_BG,
-                corner_radius=6,
-                height=34
+                bg=Theme.PANEL_BG,
+                padx=8,
+                pady=3
             )
-            row.pack(fill="x", pady=2, padx=5)
+            row.pack(fill="x", pady=1, padx=2)
 
             s_color = Theme.UNKNOWN_DOT
             s_text = f"{Theme.DOT_SYMBOL} Unknown"
@@ -448,54 +467,64 @@ class DeviceCard(ctk.CTkFrame):
                 s_text = f"{Theme.DOT_SYMBOL} Checking..."
                 t_color = Theme.CHECKING_TEXT
 
-            dot_lbl = ctk.CTkLabel(
+            dot_lbl = tk.Label(
                 row,
                 text=Theme.DOT_SYMBOL,
-                font=(Theme.FONT_FAMILY, 16, "bold"),
-                text_color=s_color,
-                width=24
+                font=(Theme.FONT_FAMILY, 14, "bold"),
+                fg=s_color,
+                bg=Theme.PANEL_BG,
+                width=2
             )
-            dot_lbl.pack(side="left", padx=(8, 4))
+            dot_lbl.pack(side="left", padx=(0, 4))
 
-            name_lbl = ctk.CTkLabel(
+            name_lbl = tk.Label(
                 row,
                 text=sub.name,
-                font=(Theme.FONT_FAMILY, 12, "bold"),
-                text_color="#F1F5F9",
-                width=160,
+                font=(Theme.FONT_FAMILY, 11, "bold"),
+                fg="#F1F5F9",
+                bg=Theme.PANEL_BG,
+                width=18,
                 anchor="w"
             )
-            name_lbl.pack(side="left", padx=5)
+            name_lbl.pack(side="left", padx=4)
 
-            ip_lbl = ctk.CTkLabel(
+            ip_lbl = tk.Label(
                 row,
                 text=sub.ip,
-                font=(Theme.MONO_FONT, 12),
-                text_color="#38BDF8",
-                width=140,
+                font=(Theme.MONO_FONT, 11),
+                fg="#38BDF8",
+                bg=Theme.PANEL_BG,
+                width=16,
                 anchor="w"
             )
-            ip_lbl.pack(side="left", padx=5)
+            ip_lbl.pack(side="left", padx=4)
 
-            status_lbl = ctk.CTkLabel(
+            status_lbl = tk.Label(
                 row,
                 text=s_text,
-                font=(Theme.FONT_FAMILY, 12, "bold"),
-                text_color=t_color,
+                font=(Theme.FONT_FAMILY, 11, "bold"),
+                fg=t_color,
+                bg=Theme.PANEL_BG,
                 anchor="w"
             )
-            status_lbl.pack(side="left", fill="x", expand=True, padx=10)
+            status_lbl.pack(side="left", fill="x", expand=True, padx=8)
 
-            del_btn = ctk.CTkButton(
+            del_btn = tk.Button(
                 row,
                 text="✕",
-                width=28,
-                height=24,
-                fg_color=Theme.ACCENT_RED,
-                hover_color=Theme.ACCENT_RED_HOVER,
+                font=(Theme.FONT_FAMILY, 9, "bold"),
+                bg="#EF4444",
+                fg="white",
+                activebackground="#DC2626",
+                activeforeground="white",
+                bd=0,
+                relief="flat",
+                padx=6,
+                pady=0,
+                cursor="hand2",
                 command=lambda i=idx: self.delete_sub_device(i)
             )
-            del_btn.pack(side="right", padx=(5, 8))
+            del_btn.pack(side="right", padx=(4, 0))
 
             self.sub_rows.append({
                 "dot": dot_lbl,
@@ -540,8 +569,12 @@ class DeviceCard(ctk.CTkFrame):
         self.update_visual_state()
         if self.is_expanded and self.sub_container is not None:
             for row in self.sub_rows:
-                row["dot"].configure(text_color=Theme.CHECKING_DOT)
-                row["status"].configure(text=f"{Theme.DOT_SYMBOL} Checking...", text_color=Theme.CHECKING_TEXT)
+                try:
+                    row["dot"].configure(fg=Theme.CHECKING_DOT)
+                    row["status"].configure(text=f"{Theme.DOT_SYMBOL} Checking...", fg=Theme.CHECKING_TEXT)
+                except Exception:
+                    row["dot"].configure(text_color=Theme.CHECKING_DOT)
+                    row["status"].configure(text=f"{Theme.DOT_SYMBOL} Checking...", text_color=Theme.CHECKING_TEXT)
 
     def apply_ping_results(self, parent_result, sub_results) -> bool:
         """
@@ -585,8 +618,12 @@ class DeviceCard(ctk.CTkFrame):
                         dot_c = Theme.ONLINE_DOT if s_online else Theme.OFFLINE_DOT
                         txt_c = Theme.ONLINE_TEXT if s_online else Theme.OFFLINE_TEXT
                         lbl_t = f"{Theme.DOT_SYMBOL} Online   {s_latency}" if s_online else f"{Theme.DOT_SYMBOL} Offline"
-                        row["dot"].configure(text_color=dot_c)
-                        row["status"].configure(text=lbl_t, text_color=txt_c)
+                        try:
+                            row["dot"].configure(fg=dot_c)
+                            row["status"].configure(text=lbl_t, fg=txt_c)
+                        except Exception:
+                            row["dot"].configure(text_color=dot_c)
+                            row["status"].configure(text=lbl_t, text_color=txt_c)
 
         state_changed = parent_status_changed or subs_changed
         if state_changed or parent_latency_changed:

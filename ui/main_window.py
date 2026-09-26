@@ -511,13 +511,49 @@ class NetworkMonitorApp(ctk.CTk):
         self._refresh_stats()
 
     def toggle_expand_all(self):
-        self.all_expanded = not self.all_expanded
-        for card in self.cards:
-            if self.all_expanded:
-                card.expand()
-            else:
+        """Smooth progressive expander that targets visible cards and prevents UI freezes."""
+        visible = [c for c in self.cards if c.winfo_ismapped()]
+        target = visible if visible else self.cards
+        if not target:
+            return
+
+        any_collapsed = any(not c.is_expanded for c in target)
+        self.all_expanded = any_collapsed
+
+        if not any_collapsed:
+            self._expand_in_progress = False
+            for card in target:
                 card.collapse()
-        self.expand_all_btn.configure(text="Collapse All" if self.all_expanded else "Expand All")
+            self.expand_all_btn.configure(text="Expand All")
+            return
+
+        if len(target) <= 20:
+            for card in target:
+                card.expand()
+            self.expand_all_btn.configure(text="Collapse All")
+            return
+
+        self._expand_in_progress = True
+        chunk_size = 25
+        total = len(target)
+        self.expand_all_btn.configure(text=f"Expanding (0/{total})...")
+
+        def _step(idx=0):
+          if not getattr(self, "_expand_in_progress", False):
+            return
+          start = idx * chunk_size
+          end = min(start + chunk_size, total)
+          for c in target[start:end]:
+            c.expand()
+
+          if end < total:
+            self.expand_all_btn.configure(text=f"Expanding ({end}/{total})...")
+            self.after(5, lambda: _step(idx + 1))
+          else:
+            self._expand_in_progress = False
+            self.expand_all_btn.configure(text="Collapse All")
+
+        _step(0)
 
     # ==========================================
     # SCANNING CONTROLS & SMART HIERARCHICAL SCANNER
