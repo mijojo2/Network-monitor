@@ -243,6 +243,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.active_status_filter = status_filter
         self.active_type_filter = type_filter
         self.active_sort = sort_type
+        self._refresh_stats()
         self._apply_display_filters()
 
     def _on_search_keyrelease(self, event=None):
@@ -372,8 +373,25 @@ class NetworkMonitorApp(ctk.CTk):
         )
         unknown = total - (online + offline)
 
-        circle_k = sum(1 for c in self.cards if c.device.get_branch_type() == "CircleK")
-        franchise = sum(1 for c in self.cards if c.device.get_branch_type() == "Franchise")
+        # Context-aware type breakdown scoped to the active status filter
+        filter_mode = self.active_status_filter
+        if filter_mode == "ONLINE":
+            status_cards = [c for c in self.cards if c.device.status == "Online"]
+        elif filter_mode == "OFFLINE":
+            status_cards = [c for c in self.cards if c.device.status == "Offline"]
+        elif filter_mode == "OFFLINE_5M":
+            status_cards = [c for c in self.cards if c.device.is_offline_over_5m()]
+        elif filter_mode == "SUB_ISSUES":
+            status_cards = [
+                c for c in self.cards
+                if c.device.status == "Online" and sum(1 for s in c.device.sub_devices if s.status == "Offline") >= 2
+            ]
+        else:
+            status_cards = self.cards
+
+        type_total = len(status_cards)
+        circle_k = sum(1 for c in status_cards if c.device.get_branch_type() == "CircleK")
+        franchise = sum(1 for c in status_cards if c.device.get_branch_type() == "Franchise")
 
         target_scope = total
         if self.scan_mode == "SELECTED":
@@ -389,7 +407,7 @@ class NetworkMonitorApp(ctk.CTk):
             unknown_devices=unknown
         )
         self.stats_bar.update_stats(stats, target_scope)
-        self.filter_bar.update_counts(total, online, offline, offline_5m, sub_issues, circle_k, franchise)
+        self.filter_bar.update_counts(total, online, offline, offline_5m, sub_issues, type_total, circle_k, franchise)
 
     def open_add_branch_dialog(self):
         """Opens a clean modal dialog to add a new branch without cluttering the toolbar."""

@@ -238,13 +238,13 @@ class FilterBar(ctk.CTkFrame):
         if self.on_filter_change:
             self.on_filter_change(self.active_status_filter, self.active_type_filter, self.active_sort)
 
-    def update_counts(self, total: int, online: int, offline: int, offline_5m: int = 0, sub_issues: int = 0, circle_k: int = 0, franchise: int = 0):
+    def update_counts(self, total: int, online: int, offline: int, offline_5m: int = 0, sub_issues: int = 0, type_total: int = 0, circle_k: int = 0, franchise: int = 0):
         self.all_btn.configure(text=f"All ({total})")
         self.offline_btn.configure(text=f"{Theme.DOT_SYMBOL} Offline ({offline})")
         self.offline_5m_btn.configure(text=f"⏳ Offline >5m ({offline_5m})")
         self.online_btn.configure(text=f"{Theme.DOT_SYMBOL} Online ({online})")
         self.sub_issues_btn.configure(text=f"⚠️ Sub Issues >=2 ({sub_issues})")
 
-        self.type_all_btn.configure(text=f"All Types ({total})")
+        self.type_all_btn.configure(text=f"All Types ({type_total})")
         self.type_circlek_btn.configure(text=f"🏢 Circle K ({circle_k})")
         self.type_franchise_btn.configure(text=f"🤝 Franchise ({franchise})")

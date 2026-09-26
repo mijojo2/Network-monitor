@@ -22,8 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Works seamlessly with both branch types:
     - **All Types**: Displays all branches down > 5m across the entire company.
     - **🏢 Circle K**: Isolates only Circle K branches (Server IP `.222`) down > 5m.
-    - **🤝 Franchise**: Isolates only Franchise branches (Server IP `.2`) down > 5m.
   - Live card presence updates in real time: as soon as an offline branch exceeds 5 minutes, it joins the tab; as soon as it recovers, it leaves the tab automatically.
+- **Context-Aware Type Breakdown (Dynamic Circle K vs Franchise Sub-Counts)**:
+  - Selecting any status tab (`Offline`, `Online`, `Sub Issues >=2`, `Offline >5m`, or `All`) now dynamically updates Row 2 Type filter counters (`All Types`, `🏢 Circle K`, `🤝 Franchise`).
+  - Directly displays how many branches of that specific status are Circle K vs Franchise at a single glance (e.g. within 112 Offline: shows `All Types (112) | 🏢 Circle K (54) | 🤝 Franchise (58)`).
 
 ---
 
