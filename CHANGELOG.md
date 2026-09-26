@@ -13,6 +13,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.1] - 2026-09-26
+### Added
+- **Live Outage Minute Progression Counter & Background Ticker**:
+  - Implemented an asynchronous UI ticker running every 5 seconds (`_tick_live_durations`) that dynamically updates the outage duration of all visible offline branches in real time without needing manual refreshes or scan cycles.
+  - Outage duration now counts live by the minute without cluttered seconds (e.g. `🔴 Down: <1 min (19:55)`, `🔴 Down: 1 min (19:55)`, `🔴 Down: 2 min (19:55)`, `🔴 Down: 5 min (19:55)`).
+  - Outage start clock stamps are formatted cleanly as `HH:MM` without seconds noise.
+  - Automatically migrates branches into the `⏳ Offline >5m` tab live as soon as their outage reaches 5 continuous minutes, and increments the top bar tab counters live.
+- **Outage Downtime Persistence (`offline_since`)**:
+  - `offline_since` timestamps are now persisted directly into `devices.JSON` via `Device.to_dict()` and restored in `StorageService.load_devices()`.
+  - Closing or rebooting the application no longer resets outage durations back to "just now" for already disconnected branches.
+- **State-Diffed Label Updates**:
+  - `DeviceCard.refresh_last_seen_display()` uses State-Diffing to update label widgets only when the display text changes, guaranteeing 0 flicker and 0 CPU overhead.
+
+---
+
 ## [1.4.0] - 2026-09-26
 ### Added
 - **Direct Server IP & Live Status Visibility on Card Header**:

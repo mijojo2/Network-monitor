@@ -67,6 +67,7 @@ class Device:
             "ip": self.ip,
             "last_seen": self.last_seen,
             "last_check": self.last_check,
+            "offline_since": self.offline_since,
             "sub_devices": [s.to_dict() for s in self.sub_devices]
         }
 
@@ -85,10 +86,10 @@ class Device:
         return False
 
     def get_last_seen_display(self) -> str:
-        """Returns human-readable relative time and clock stamp for connection history."""
+        """Returns human-readable relative time and clock stamp for connection history (live minutes, no seconds)."""
         if self.status == "Online":
             if self.last_seen:
-                t_str = time.strftime("%H:%M:%S", time.localtime(self.last_seen))
+                t_str = time.strftime("%H:%M", time.localtime(self.last_seen))
                 return f"🟢 Responded: {t_str}"
             return "🟢 Responded: Just now"
         else:
@@ -96,20 +97,21 @@ class Device:
             if not ref:
                 return "⚪ Last seen: Not recorded yet"
             diff = time.time() - ref
-            t_str = time.strftime("%H:%M:%S", time.localtime(ref))
+            t_str = time.strftime("%H:%M", time.localtime(ref))
             if diff < 60:
-                return f"🔴 Down: just now ({t_str})"
+                return f"🔴 Down: <1 min ({t_str})"
             elif diff < 3600:
                 mins = int(diff // 60)
-                return f"🔴 Down: {mins}m ago ({t_str})"
+                return f"🔴 Down: {mins} min ({t_str})"
             elif diff < 86400:
                 hrs = int(diff // 3600)
                 mins = int((diff % 3600) // 60)
-                return f"🔴 Down: {hrs}h {mins}m ago ({t_str})"
+                return f"🔴 Down: {hrs}h {mins}m ({t_str})"
             else:
                 days = int(diff // 86400)
+                hrs = int((diff % 86400) // 3600)
                 d_str = time.strftime("%b %d %H:%M", time.localtime(ref))
-                return f"🔴 Down: {days}d ago ({d_str})"
+                return f"🔴 Down: {days}d {hrs}h ({d_str})"
 
     def get_server_sub_device(self) -> Optional[SubDevice]:
         """Returns the server sub-device (matching name == 'server', case-insensitive)."""

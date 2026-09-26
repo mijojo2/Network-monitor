@@ -384,15 +384,10 @@ class DeviceCard(ctk.CTkFrame):
             self._rendered_latency = latency
             self.pill_lbl.configure(text=f"{Theme.DOT_SYMBOL} Online   {latency}")
 
-        # Update last seen/connected label
-        if hasattr(self, "last_seen_lbl"):
-            self.last_seen_lbl.configure(text=self.device.get_last_seen_display())
-            if status == "Online":
-                self.last_seen_lbl.configure(text_color="#94A3B8")
-                if getattr(self, "has_active_alert", False):
-                    self.set_alert_state(False)
-            else:
-                self.last_seen_lbl.configure(text_color="#F87171")
+        # Update last seen/connected label with live State-Diffing
+        self.refresh_last_seen_display()
+        if status == "Online" and getattr(self, "has_active_alert", False):
+            self.set_alert_state(False)
 
         # 3. Sub-devices Summary & Direct Offline Names Visibility
         offline_subs = [s.name for s in self.device.sub_devices if s.status == "Offline"]
@@ -524,6 +519,20 @@ class DeviceCard(ctk.CTkFrame):
             self.after(1200, self._update_server_badge)
         except Exception:
             pass
+
+    def refresh_last_seen_display(self):
+        """
+        Refreshes the last_seen_lbl with live minute progression (e.g. <1 min, 1 min, 2 min, 5 min).
+        Uses State-Diffing to avoid touching Tkinter widgets unless text actually changed.
+        """
+        if hasattr(self, "last_seen_lbl"):
+            new_text = self.device.get_last_seen_display()
+            if self.last_seen_lbl.cget("text") != new_text:
+                self.last_seen_lbl.configure(text=new_text)
+                if self.device.status == "Online":
+                    self.last_seen_lbl.configure(text_color="#94A3B8")
+                else:
+                    self.last_seen_lbl.configure(text_color="#F87171")
 
     def render_sub_devices(self):
         if self.sub_container is None:
@@ -731,6 +740,8 @@ class DeviceCard(ctk.CTkFrame):
         state_changed = parent_status_changed or subs_changed
         if state_changed or parent_latency_changed:
             self.update_visual_state(force=False)
+        else:
+            self.refresh_last_seen_display()
 
         return state_changed
 

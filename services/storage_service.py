@@ -10,9 +10,11 @@ class StorageService:
     """Manages persistent storage with atomic writes and automatic rolling backups."""
 
     def __init__(self, data_file: str = "devices.JSON", backup_dir: str = "backups"):
-        # Support case sensitivity / fallback
-        if not os.path.exists(data_file) and os.path.exists("devices.json"):
-            self.data_file = "devices.json"
+        if data_file.lower() == "devices.json":
+            if not os.path.exists("devices.JSON") and os.path.exists("devices.json"):
+                self.data_file = "devices.json"
+            else:
+                self.data_file = "devices.JSON"
         else:
             self.data_file = data_file
 
@@ -69,6 +71,7 @@ class StorageService:
                     latency=item.get("latency", "-"),
                     last_seen=item.get("last_seen"),
                     last_check=item.get("last_check"),
+                    offline_since=item.get("offline_since"),
                     sub_devices=item.get("sub_devices", [])
                 )
                 if not dev.sub_devices:

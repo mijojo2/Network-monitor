@@ -45,6 +45,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.active_server_filter = "ALL"  # "ALL", "SERVER_DOWN", "ROUTER_UP_SERVER_DOWN", "SERVER_ONLINE"
         self.active_sort = "LATEST"        # "LATEST", "NAME"
         self._search_after_id = None
+        self._live_ticker_id = None
         self._previous_states = {}  # Tracks IP -> status for offline alerts
         self._session_active_branches = set()  # Only branches active in this session can trigger drop alerts
 
@@ -57,6 +58,8 @@ class NetworkMonitorApp(ctk.CTk):
 
         # Auto-start scanning on launch (after UI has fully rendered)
         self.after(500, self.start_auto_scan)
+        # Start live outage duration ticker (updates live minutes without seconds)
+        self.after(2000, self._start_live_duration_ticker)
 
     def _init_window(self):
         self.title("Network Monitor Pro - Multi-Branch & Sub-Devices")
@@ -68,6 +71,11 @@ class NetworkMonitorApp(ctk.CTk):
 
     def _on_window_closing(self):
         self.stop_requested = True
+        if hasattr(self, "_live_ticker_id") and self._live_ticker_id:
+            try:
+                self.after_cancel(self._live_ticker_id)
+            except Exception:
+                pass
         try:
             self.executor.shutdown(wait=False, cancel_futures=True)
         except Exception:
@@ -236,6 +244,47 @@ class NetworkMonitorApp(ctk.CTk):
             return original_scroll(event)
 
         frame._mouse_wheel_all = _accelerated_scroll
+
+    def _start_live_duration_ticker(self):
+        self._tick_live_durations()
+
+    def _tick_live_durations(self):
+        """
+        Lightweight UI ticker running every 5 seconds.
+        Updates connection duration labels (last_seen_lbl) for visible cards in real time,
+        giving operators a live count of outage duration (e.g. <1 min, 1 min, 2 min, 5 min)
+        completely in real time without seconds.
+        Also dynamically transitions branches into 'Offline >5m' tab when their downtime reaches 5 minutes.
+        """
+        if self.stop_requested:
+            return
+
+        try:
+            # 1. Update live last_seen duration text on visible cards
+            for card in self.cards:
+                if card.winfo_ismapped():
+                    card.refresh_last_seen_display()
+
+            # 2. If viewing OFFLINE_5M tab, dynamically show branches that just reached 5m
+            if getattr(self, "active_status_filter", "ALL") == "OFFLINE_5M":
+                for card in self.cards:
+                    if card.device.status == "Offline":
+                        is_mapped = card.winfo_ismapped()
+                        matches = self._card_matches_filter_and_search(card)
+                        if matches and not is_mapped:
+                            card.pack(fill="x", padx=5, pady=4)
+                        elif not matches and is_mapped:
+                            card.pack_forget()
+
+            # 3. Refresh live tab counts so 'Offline >5m' badge count ticks live
+            self._refresh_stats()
+
+        except Exception:
+            pass
+
+        # Schedule next tick in 5 seconds (5000 ms)
+        if not self.stop_requested:
+            self._live_ticker_id = self.after(5000, self._tick_live_durations)
 
     def _on_toggle_sound(self, enabled: bool):
         self.alert_service.sound_enabled = enabled
