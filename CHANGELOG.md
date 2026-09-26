@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.8] - 2026-09-26
+### Added
+- **Dedicated Critical Outage Tab (`⏳ Offline >5m`)**:
+  - Added a dedicated status filter button in Row 1: `⏳ Offline >5m` with dynamic live counter.
+  - Strictly isolates branches that have been down for more than 5 minutes (`>= 300 seconds`) continuously without a single successful online ping response.
+  - Implemented anti-flapping downtime streak tracking: any intermittent online response immediately resets the 5-minute counter.
+  - Works seamlessly with both branch types:
+    - **All Types**: Displays all branches down > 5m across the entire company.
+    - **🏢 Circle K**: Isolates only Circle K branches (Server IP `.222`) down > 5m.
+    - **🤝 Franchise**: Isolates only Franchise branches (Server IP `.2`) down > 5m.
+  - Live card presence updates in real time: as soon as an offline branch exceeds 5 minutes, it joins the tab; as soon as it recovers, it leaves the tab automatically.
+
+---
+
 ## [1.3.7] - 2026-09-26
 ### Added
 - **Visual Bell Outage Badge (`🔔 Outage Alert`)**:

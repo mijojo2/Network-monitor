@@ -553,6 +553,10 @@ class DeviceCard(ctk.CTkFrame):
         self.device.last_check = now
         if p_online:
             self.device.last_seen = now
+            self.device.offline_since = None
+        else:
+            if getattr(self.device, "offline_since", None) is None:
+                self.device.offline_since = self.device.last_seen or now
 
         new_status = "Online" if p_online else "Offline"
         new_latency = p_latency if p_online else "-"

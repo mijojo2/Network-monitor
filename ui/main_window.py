@@ -40,7 +40,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.is_scanning = False
         self.scan_mode = "ALL"  # "ALL" or "SELECTED"
         self.all_expanded = False
-        self.active_status_filter = "ALL"  # "ALL", "ONLINE", "OFFLINE", "SUB_ISSUES"
+        self.active_status_filter = "ALL"  # "ALL", "ONLINE", "OFFLINE", "OFFLINE_5M", "SUB_ISSUES"
         self.active_type_filter = "ALL"    # "ALL", "CIRCLE_K", "FRANCHISE"
         self.active_sort = "LATEST"        # "LATEST", "NAME"
         self._search_after_id = None
@@ -261,6 +261,8 @@ class NetworkMonitorApp(ctk.CTk):
             return False
         elif filter_mode == "OFFLINE" and dev.status != "Offline":
             return False
+        elif filter_mode == "OFFLINE_5M" and not dev.is_offline_over_5m():
+            return False
         elif filter_mode == "SUB_ISSUES" and not (dev.status == "Online" and offline_subs_count >= 2):
             return False
 
@@ -363,6 +365,7 @@ class NetworkMonitorApp(ctk.CTk):
         total = len(self.cards)
         online = sum(1 for c in self.cards if c.device.status == "Online")
         offline = sum(1 for c in self.cards if c.device.status == "Offline")
+        offline_5m = sum(1 for c in self.cards if c.device.is_offline_over_5m())
         sub_issues = sum(
             1 for c in self.cards
             if c.device.status == "Online" and sum(1 for s in c.device.sub_devices if s.status == "Offline") >= 2
@@ -386,7 +389,7 @@ class NetworkMonitorApp(ctk.CTk):
             unknown_devices=unknown
         )
         self.stats_bar.update_stats(stats, target_scope)
-        self.filter_bar.update_counts(total, online, offline, sub_issues, circle_k, franchise)
+        self.filter_bar.update_counts(total, online, offline, offline_5m, sub_issues, circle_k, franchise)
 
     def open_add_branch_dialog(self):
         """Opens a clean modal dialog to add a new branch without cluttering the toolbar."""

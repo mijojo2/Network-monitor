@@ -44,6 +44,7 @@ class Device:
     sub_devices: List[SubDevice] = field(default_factory=list)
     last_seen: Optional[float] = None
     last_check: Optional[float] = None
+    offline_since: Optional[float] = None
 
     def __post_init__(self):
         cleaned: List[SubDevice] = []
@@ -69,6 +70,20 @@ class Device:
             "sub_devices": [s.to_dict() for s in self.sub_devices]
         }
 
+    def is_offline_over_5m(self, now: Optional[float] = None) -> bool:
+        """
+        Returns True if the branch is currently Offline and has been continuously down
+        for at least 5 minutes (300 seconds) without any successful online response.
+        """
+        if self.status != "Offline":
+            return False
+        if now is None:
+            now = time.time()
+        ref = self.offline_since if self.offline_since is not None else self.last_seen
+        if ref is not None and ref > 0:
+            return (now - ref) >= 300
+        return False
+
     def get_last_seen_display(self) -> str:
         """Returns human-readable relative time and clock stamp for connection history."""
         if self.status == "Online":
@@ -77,10 +92,11 @@ class Device:
                 return f"🟢 Responded: {t_str}"
             return "🟢 Responded: Just now"
         else:
-            if not self.last_seen:
+            ref = self.offline_since if self.offline_since is not None else self.last_seen
+            if not ref:
                 return "⚪ Last seen: Not recorded yet"
-            diff = time.time() - self.last_seen
-            t_str = time.strftime("%H:%M:%S", time.localtime(self.last_seen))
+            diff = time.time() - ref
+            t_str = time.strftime("%H:%M:%S", time.localtime(ref))
             if diff < 60:
                 return f"🔴 Down: just now ({t_str})"
             elif diff < 3600:
@@ -92,7 +108,7 @@ class Device:
                 return f"🔴 Down: {hrs}h {mins}m ago ({t_str})"
             else:
                 days = int(diff // 86400)
-                d_str = time.strftime("%b %d %H:%M", time.localtime(self.last_seen))
+                d_str = time.strftime("%b %d %H:%M", time.localtime(ref))
                 return f"🔴 Down: {days}d ago ({d_str})"
 
     def get_branch_type(self) -> str:

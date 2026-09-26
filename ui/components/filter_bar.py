@@ -52,7 +52,7 @@ class FilterBar(ctk.CTkFrame):
         self.offline_btn = ctk.CTkButton(
             row1,
             text=f"{Theme.DOT_SYMBOL} Offline (0)",
-            width=100,
+            width=95,
             height=28,
             font=(Theme.FONT_FAMILY, 11, "bold"),
             fg_color="#334155",
@@ -61,6 +61,19 @@ class FilterBar(ctk.CTkFrame):
             command=lambda: self._set_status_filter("OFFLINE")
         )
         self.offline_btn.pack(side="left", padx=3)
+
+        self.offline_5m_btn = ctk.CTkButton(
+            row1,
+            text="⏳ Offline >5m (0)",
+            width=125,
+            height=28,
+            font=(Theme.FONT_FAMILY, 11, "bold"),
+            fg_color="#334155",
+            hover_color="#991B1B",
+            text_color="#FCA5A5",
+            command=lambda: self._set_status_filter("OFFLINE_5M")
+        )
+        self.offline_5m_btn.pack(side="left", padx=3)
 
         self.online_btn = ctk.CTkButton(
             row1,
@@ -177,13 +190,15 @@ class FilterBar(ctk.CTkFrame):
     def _set_status_filter(self, filter_type: str):
         self.active_status_filter = filter_type
 
-        for btn in [self.all_btn, self.offline_btn, self.online_btn, self.sub_issues_btn]:
+        for btn in [self.all_btn, self.offline_btn, self.offline_5m_btn, self.online_btn, self.sub_issues_btn]:
             btn.configure(fg_color="#334155", border_width=0)
 
         if filter_type == "ALL":
             self.all_btn.configure(fg_color=Theme.ACCENT_BLUE)
         elif filter_type == "OFFLINE":
             self.offline_btn.configure(fg_color=Theme.OFFLINE_BG, border_color=Theme.OFFLINE_BORDER, border_width=1)
+        elif filter_type == "OFFLINE_5M":
+            self.offline_5m_btn.configure(fg_color="#7F1D1D", border_color="#EF4444", border_width=1)
         elif filter_type == "ONLINE":
             self.online_btn.configure(fg_color=Theme.ONLINE_BG, border_color=Theme.ONLINE_BORDER, border_width=1)
         elif filter_type == "SUB_ISSUES":
@@ -223,9 +238,10 @@ class FilterBar(ctk.CTkFrame):
         if self.on_filter_change:
             self.on_filter_change(self.active_status_filter, self.active_type_filter, self.active_sort)
 
-    def update_counts(self, total: int, online: int, offline: int, sub_issues: int, circle_k: int = 0, franchise: int = 0):
+    def update_counts(self, total: int, online: int, offline: int, offline_5m: int = 0, sub_issues: int = 0, circle_k: int = 0, franchise: int = 0):
         self.all_btn.configure(text=f"All ({total})")
         self.offline_btn.configure(text=f"{Theme.DOT_SYMBOL} Offline ({offline})")
+        self.offline_5m_btn.configure(text=f"⏳ Offline >5m ({offline_5m})")
         self.online_btn.configure(text=f"{Theme.DOT_SYMBOL} Online ({online})")
         self.sub_issues_btn.configure(text=f"⚠️ Sub Issues >=2 ({sub_issues})")
 
