@@ -41,8 +41,11 @@ class NetworkMonitorApp(ctk.CTk):
         self.scan_mode = "ALL"  # "ALL" or "SELECTED"
         self.all_expanded = False
         self.active_status_filter = "ALL"  # "ALL", "ONLINE", "OFFLINE", "SUB_ISSUES"
+        self.active_type_filter = "ALL"    # "ALL", "CIRCLE_K", "FRANCHISE"
+        self.active_sort = "LATEST"        # "LATEST", "NAME"
         self._search_after_id = None
         self._previous_states = {}  # Tracks IP -> status for offline alerts
+        self._session_active_branches = set()  # Only branches active in this session can trigger drop alerts
 
         self._init_window()
         self._build_gui()
@@ -227,11 +230,11 @@ class NetworkMonitorApp(ctk.CTk):
         self.stats_bar = StatsBar(self, on_toggle_sound=self._on_toggle_sound)
         self.stats_bar.pack(fill="x", padx=12, pady=(0, 4))
 
-        # 3. Quick Status Filter Bar (With Sub Issues Tab)
+        # 3. Quick Status & Type Filter Bar (With Sub Issues, Circle K, Franchise, and Sort)
         filter_container = ctk.CTkFrame(self, fg_color="transparent")
         filter_container.pack(fill="x", padx=12, pady=(2, 4))
         self.filter_bar = FilterBar(filter_container, on_filter_change=self._on_filter_changed)
-        self.filter_bar.pack(side="left")
+        self.filter_bar.pack(fill="x", expand=True)
 
         # 4. Scrollable Device Cards Container
         self.device_frame = ctk.CTkScrollableFrame(
@@ -246,8 +249,10 @@ class NetworkMonitorApp(ctk.CTk):
     def _on_toggle_sound(self, enabled: bool):
         self.alert_service.sound_enabled = enabled
 
-    def _on_filter_changed(self, filter_type: str):
-        self.active_status_filter = filter_type
+    def _on_filter_changed(self, status_filter: str, type_filter: str, sort_type: str):
+        self.active_status_filter = status_filter
+        self.active_type_filter = type_filter
+        self.active_sort = sort_type
         self._apply_display_filters()
 
     def _on_search_keyrelease(self, event=None):
@@ -256,27 +261,27 @@ class NetworkMonitorApp(ctk.CTk):
         self._search_after_id = self.after(180, self._apply_display_filters)
 
     def _card_matches_filter_and_search(self, card: DeviceCard) -> bool:
-        """Determines if a card matches the current filter tab and search query."""
+        """Determines if a card matches status filter, branch type, and search query."""
         dev = card.device
         filter_mode = self.active_status_filter
         offline_subs_count = sum(1 for s in dev.sub_devices if s.status == "Offline")
 
-        # 1. Filter Tab Logic
-        status_match = True
-        if filter_mode == "ONLINE":
-            # Shows all branches where router is UP (even if some sub-devices are down)
-            status_match = (dev.status == "Online")
-        elif filter_mode == "OFFLINE":
-            # Shows ONLY branches where the router itself is DOWN
-            status_match = (dev.status == "Offline")
-        elif filter_mode == "SUB_ISSUES":
-            # Shows branches where router is UP, BUT at least 2 sub-devices are DOWN
-            status_match = (dev.status == "Online" and offline_subs_count >= 2)
-
-        if not status_match:
+        # 1. Status Filter Tab Logic
+        if filter_mode == "ONLINE" and dev.status != "Online":
+            return False
+        elif filter_mode == "OFFLINE" and dev.status != "Offline":
+            return False
+        elif filter_mode == "SUB_ISSUES" and not (dev.status == "Online" and offline_subs_count >= 2):
             return False
 
-        # 2. Search Query Logic
+        # 2. Branch Type Filter Logic (Circle K vs Franchise)
+        b_type = dev.get_branch_type()
+        if self.active_type_filter == "CIRCLE_K" and b_type != "CircleK":
+            return False
+        elif self.active_type_filter == "FRANCHISE" and b_type != "Franchise":
+            return False
+
+        # 3. Search Query Logic
         query = self.search.get().strip().lower()
         if query:
             name_match = query in dev.name.lower()
@@ -298,9 +303,39 @@ class NetworkMonitorApp(ctk.CTk):
         elif not should_show and is_mapped:
             card.pack_forget()
 
+    def _get_card_sort_key(self, card: DeviceCard):
+        """
+        Sort order:
+        - LATEST: Cards with recorded last_seen come first (-last_seen DESC), unrecorded alphabetically.
+        - NAME: Cards sorted alphabetically by branch name (A-Z).
+        """
+        dev = card.device
+        if self.active_sort == "LATEST":
+            if dev.last_seen is not None and dev.last_seen > 0:
+                return (0, -dev.last_seen, dev.name.lower())
+            else:
+                return (1, 0, dev.name.lower())
+        else:
+            return (0, 0, dev.name.lower())
+
     def _apply_display_filters(self):
+        """Filters and repacks cards in sorted order."""
+        matching_cards = []
         for card in self.cards:
-            self._check_card_filter_visibility(card)
+            if self._card_matches_filter_and_search(card):
+                matching_cards.append(card)
+            else:
+                if card.winfo_ismapped():
+                    card.pack_forget()
+
+        # Sort matching cards according to active sort option
+        matching_cards.sort(key=self._get_card_sort_key)
+
+        # Unpack matching then repack to guarantee exact visual order
+        for card in matching_cards:
+            card.pack_forget()
+        for card in matching_cards:
+            card.pack(fill="x", padx=5, pady=4)
 
     def load_devices(self):
         for card in self.cards:
@@ -338,6 +373,9 @@ class NetworkMonitorApp(ctk.CTk):
         )
         unknown = total - (online + offline)
 
+        circle_k = sum(1 for c in self.cards if c.device.get_branch_type() == "CircleK")
+        franchise = sum(1 for c in self.cards if c.device.get_branch_type() == "Franchise")
+
         target_scope = total
         if self.scan_mode == "SELECTED":
             selected_count = sum(1 for c in self.cards if c.is_selected())
@@ -352,7 +390,10 @@ class NetworkMonitorApp(ctk.CTk):
             unknown_devices=unknown
         )
         self.stats_bar.update_stats(stats, target_scope)
-        self.filter_bar.update_counts(total, online, offline, sub_issues)
+        self.filter_bar.update_counts(total, online, offline, sub_issues, circle_k, franchise)
+
+        # Refresh sorted display order so newly updated cards float smoothly
+        self._apply_display_filters()
 
     def add_device(self):
         name = self.name_entry.get().strip()
@@ -542,11 +583,14 @@ class NetworkMonitorApp(ctk.CTk):
                         if new_online:
                             self._offline_failure_counts[card.device.ip] = 0
                             self._previous_states[card.device.ip] = "Online"
+                            self._session_active_branches.add(card.device.ip)
                         else:
                             failures = self._offline_failure_counts.get(card.device.ip, 0) + 1
                             self._offline_failure_counts[card.device.ip] = failures
-                            if prev_status == "Online" and failures == 2:
+                            # Alert ONLY when a branch that was active in this session drops for 2 confirmed cycles
+                            if card.device.ip in self._session_active_branches and failures == 2:
                                 self.alert_service.trigger_offline_alert(card.device.name, card.device.ip)
+                                self._session_active_branches.discard(card.device.ip)
                             if failures >= 2:
                                 self._previous_states[card.device.ip] = "Offline"
 
@@ -586,7 +630,10 @@ class NetworkMonitorApp(ctk.CTk):
                     break
 
         self.is_scanning = False
-        self.after(0, lambda: self._update_button_visuals(running_mode="STOPPED"))
+        try:
+            self.after(0, lambda: self._update_button_visuals(running_mode="STOPPED"))
+        except Exception:
+            pass
 
     # ==========================================
     # IMPORT & EXPORT

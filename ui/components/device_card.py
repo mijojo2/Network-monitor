@@ -1,3 +1,4 @@
+import time
 import customtkinter as ctk
 from core.models import Device, SubDevice
 from ui.theme import Theme
@@ -67,13 +68,42 @@ class DeviceCard(ctk.CTkFrame):
         self.name_ip_frame = ctk.CTkFrame(self.header_frame, fg_color="transparent")
         self.name_ip_frame.grid(row=0, column=2, rowspan=2, sticky="w")
 
+        name_row = ctk.CTkFrame(self.name_ip_frame, fg_color="transparent")
+        name_row.pack(anchor="w")
+
         self.name_lbl = ctk.CTkLabel(
-            self.name_ip_frame,
+            name_row,
             text=self.device.name,
             font=(Theme.FONT_FAMILY, 15, "bold"),
             anchor="w"
         )
-        self.name_lbl.pack(anchor="w")
+        self.name_lbl.pack(side="left")
+
+        b_type = self.device.get_branch_type()
+        if b_type == "CircleK":
+            self.type_badge = ctk.CTkLabel(
+                name_row,
+                text="🏢 Circle K",
+                font=(Theme.FONT_FAMILY, 10, "bold"),
+                text_color="#60A5FA",
+                fg_color="#1E293B",
+                corner_radius=4,
+                padx=6,
+                pady=1
+            )
+            self.type_badge.pack(side="left", padx=(8, 0))
+        elif b_type == "Franchise":
+            self.type_badge = ctk.CTkLabel(
+                name_row,
+                text="🤝 Franchise",
+                font=(Theme.FONT_FAMILY, 10, "bold"),
+                text_color="#C084FC",
+                fg_color="#2E1065",
+                corner_radius=4,
+                padx=6,
+                pady=1
+            )
+            self.type_badge.pack(side="left", padx=(8, 0))
 
         self.ip_lbl = ctk.CTkLabel(
             self.name_ip_frame,

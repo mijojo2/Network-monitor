@@ -114,7 +114,7 @@ class StorageService:
             data = [d.to_dict() for d in devices]
 
             with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4, ensure_ascii=False)
+                json.dump(data, f, indent=2, ensure_ascii=False)
 
             # Atomic replace on Windows
             if os.path.exists(self.data_file):

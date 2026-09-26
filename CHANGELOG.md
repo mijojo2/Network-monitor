@@ -13,6 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.5] - 2026-09-26
+### Added
+- **Branch Type Segmentation (Circle K vs Franchise)**:
+  - Added automatic branch classification: Server `.222` -> `🏢 Circle K` (103 branches), Server `.2` -> `🤝 Franchise` (107 branches).
+  - Added two-tier interactive filter bar with dedicated type segment: `All Types`, `🏢 Circle K`, and `🤝 Franchise` with live counters.
+  - Added sleek colored visual badges directly on every card header (`🏢 Circle K` in slate blue, `🤝 Franchise` in violet).
+- **Dynamic Sorting (Latest Response vs Alphabetical)**:
+  - Implemented dynamic sorting: `🕒 Latest Response` automatically floats branches with the most recent activity/disconnection to the top, falling back to alphabetical A-Z for unrecorded devices.
+  - Added quick-toggle sort control in the filter bar (`🕒 Latest Response` | `🔤 A-Z`).
+  - Cards reorder seamlessly at the end of each scan cycle and upon filter selection without UI jumping.
+
+### Changed
+- **Session-Confirmed Audio Outage Alerts**:
+  - Enforced strict rule that audible alerts ONLY trigger when an actively working branch (observed online in the current session) drops for 2 consecutive confirmed cycles.
+  - Eliminated audio alerts on application launch and for branches already known to be down.
+  - Sub-devices and recovery events remain strictly silent.
+
+---
+
 ## [1.3.4] - 2026-09-26
 ### Added
 - **Server Sub-Device Provisioning for All 210 Branches**:

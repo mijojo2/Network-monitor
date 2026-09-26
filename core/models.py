@@ -95,6 +95,24 @@ class Device:
                 d_str = time.strftime("%b %d %H:%M", time.localtime(self.last_seen))
                 return f"🔴 Down: {days}d ago ({d_str})"
 
+    def get_branch_type(self) -> str:
+        """Returns 'CircleK' (server ends in .222) or 'Franchise' (server ends in .2)."""
+        for sub in self.sub_devices:
+            if sub.name.lower() == "server":
+                if sub.ip.endswith(".222"):
+                    return "CircleK"
+                elif sub.ip.endswith(".2"):
+                    return "Franchise"
+        return "Unknown"
+
+    def get_branch_type_display(self) -> str:
+        b_type = self.get_branch_type()
+        if b_type == "CircleK":
+            return "🏢 Circle K"
+        elif b_type == "Franchise":
+            return "🤝 Franchise"
+        return "Unknown"
+
 
 @dataclass
 class NetworkStats:
