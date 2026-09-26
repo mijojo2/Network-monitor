@@ -42,6 +42,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.all_expanded = False
         self.active_status_filter = "ALL"  # "ALL", "ONLINE", "OFFLINE", "OFFLINE_5M", "SUB_ISSUES"
         self.active_type_filter = "ALL"    # "ALL", "CIRCLE_K", "FRANCHISE"
+        self.active_server_filter = "ALL"  # "ALL", "SERVER_DOWN", "ROUTER_UP_SERVER_DOWN", "SERVER_ONLINE"
         self.active_sort = "LATEST"        # "LATEST", "NAME"
         self._search_after_id = None
         self._previous_states = {}  # Tracks IP -> status for offline alerts
@@ -239,9 +240,10 @@ class NetworkMonitorApp(ctk.CTk):
     def _on_toggle_sound(self, enabled: bool):
         self.alert_service.sound_enabled = enabled
 
-    def _on_filter_changed(self, status_filter: str, type_filter: str, sort_type: str):
+    def _on_filter_changed(self, status_filter: str, type_filter: str, server_filter: str, sort_type: str):
         self.active_status_filter = status_filter
         self.active_type_filter = type_filter
+        self.active_server_filter = server_filter
         self.active_sort = sort_type
         self._refresh_stats()
         self._apply_display_filters()
@@ -252,7 +254,7 @@ class NetworkMonitorApp(ctk.CTk):
         self._search_after_id = self.after(180, self._apply_display_filters)
 
     def _card_matches_filter_and_search(self, card: DeviceCard) -> bool:
-        """Determines if a card matches status filter, branch type, and search query."""
+        """Determines if a card matches status filter, branch type, server filter, and search query."""
         dev = card.device
         filter_mode = self.active_status_filter
         offline_subs_count = sum(1 for s in dev.sub_devices if s.status == "Offline")
@@ -274,7 +276,16 @@ class NetworkMonitorApp(ctk.CTk):
         elif self.active_type_filter == "FRANCHISE" and b_type != "Franchise":
             return False
 
-        # 3. Search Query Logic
+        # 3. Dedicated Server Status Filter Logic
+        srv_mode = getattr(self, "active_server_filter", "ALL")
+        if srv_mode == "SERVER_DOWN" and not dev.is_server_down():
+            return False
+        elif srv_mode == "ROUTER_UP_SERVER_DOWN" and not dev.is_router_up_server_down():
+            return False
+        elif srv_mode == "SERVER_ONLINE" and not dev.is_server_up():
+            return False
+
+        # 4. Search Query Logic
         query = self.search.get().strip().lower()
         if query:
             name_match = query in dev.name.lower()
@@ -373,25 +384,46 @@ class NetworkMonitorApp(ctk.CTk):
         )
         unknown = total - (online + offline)
 
-        # Context-aware type breakdown scoped to the active status filter
+        # Context-aware type breakdown scoped to the active status & server filters
+        status_cards = self.cards
         filter_mode = self.active_status_filter
         if filter_mode == "ONLINE":
-            status_cards = [c for c in self.cards if c.device.status == "Online"]
+            status_cards = [c for c in status_cards if c.device.status == "Online"]
         elif filter_mode == "OFFLINE":
-            status_cards = [c for c in self.cards if c.device.status == "Offline"]
+            status_cards = [c for c in status_cards if c.device.status == "Offline"]
         elif filter_mode == "OFFLINE_5M":
-            status_cards = [c for c in self.cards if c.device.is_offline_over_5m()]
+            status_cards = [c for c in status_cards if c.device.is_offline_over_5m()]
         elif filter_mode == "SUB_ISSUES":
             status_cards = [
-                c for c in self.cards
+                c for c in status_cards
                 if c.device.status == "Online" and sum(1 for s in c.device.sub_devices if s.status == "Offline") >= 2
             ]
-        else:
-            status_cards = self.cards
+
+        srv_mode = getattr(self, "active_server_filter", "ALL")
+        if srv_mode == "SERVER_DOWN":
+            status_cards = [c for c in status_cards if c.device.is_server_down()]
+        elif srv_mode == "ROUTER_UP_SERVER_DOWN":
+            status_cards = [c for c in status_cards if c.device.is_router_up_server_down()]
+        elif srv_mode == "SERVER_ONLINE":
+            status_cards = [c for c in status_cards if c.device.is_server_up()]
 
         type_total = len(status_cards)
         circle_k = sum(1 for c in status_cards if c.device.get_branch_type() == "CircleK")
         franchise = sum(1 for c in status_cards if c.device.get_branch_type() == "Franchise")
+
+        # Context-aware server breakdown scoped to active Type filter
+        type_mode = getattr(self, "active_type_filter", "ALL")
+        if type_mode == "CIRCLE_K":
+            srv_scope = [c for c in self.cards if c.device.get_branch_type() == "CircleK"]
+        elif type_mode == "FRANCHISE":
+            srv_scope = [c for c in self.cards if c.device.get_branch_type() == "Franchise"]
+        else:
+            srv_scope = self.cards
+
+        srv_total = len(srv_scope)
+        srv_down = sum(1 for c in srv_scope if c.device.is_server_down())
+        srv_up_down = sum(1 for c in srv_scope if c.device.is_router_up_server_down())
+        srv_online = sum(1 for c in srv_scope if c.device.is_server_up())
 
         target_scope = total
         if self.scan_mode == "SELECTED":
@@ -407,7 +439,11 @@ class NetworkMonitorApp(ctk.CTk):
             unknown_devices=unknown
         )
         self.stats_bar.update_stats(stats, target_scope)
-        self.filter_bar.update_counts(total, online, offline, offline_5m, sub_issues, type_total, circle_k, franchise)
+        self.filter_bar.update_counts(
+            total, online, offline, offline_5m, sub_issues,
+            type_total, circle_k, franchise,
+            srv_total, srv_down, srv_up_down, srv_online
+        )
 
     def open_add_branch_dialog(self):
         """Opens a clean modal dialog to add a new branch without cluttering the toolbar."""

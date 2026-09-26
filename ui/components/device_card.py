@@ -119,14 +119,29 @@ class DeviceCard(ctk.CTkFrame):
         )
         self.has_active_alert = False
 
+        # IPs row: Router IP + Dedicated Server Status Badge
+        self.ips_row = ctk.CTkFrame(self.name_ip_frame, fg_color="transparent")
+        self.ips_row.pack(anchor="w", pady=(2, 0))
+
         self.ip_lbl = ctk.CTkLabel(
-            self.name_ip_frame,
+            self.ips_row,
             text=f"Router: {self.device.ip}",
             font=(Theme.MONO_FONT, 12, "bold"),
             text_color="#38BDF8",
             anchor="w"
         )
-        self.ip_lbl.pack(anchor="w")
+        self.ip_lbl.pack(side="left")
+
+        self.server_badge = ctk.CTkButton(
+            self.ips_row,
+            text="🖥️ Server: N/A",
+            font=(Theme.FONT_FAMILY, 10, "bold"),
+            height=22,
+            corner_radius=5,
+            cursor="hand2",
+            command=self._copy_server_ip
+        )
+        self.server_badge.pack(side="left", padx=(10, 0))
 
         self.last_seen_lbl = ctk.CTkLabel(
             self.name_ip_frame,
@@ -421,6 +436,94 @@ class DeviceCard(ctk.CTkFrame):
                         text=f"📌 {count} Sub-devices",
                         text_color="#94A3B8"
                     )
+
+        # 4. Direct Server Status & IP Visibility on Header
+        self._update_server_badge()
+
+    def _update_server_badge(self):
+        """
+        Updates the header Server badge with live IP, status, and latency.
+        Critically highlights the deceptive failure where Router is Online but Server is Offline.
+        """
+        if not hasattr(self, "server_badge"):
+            return
+
+        server_sub = self.device.get_server_sub_device()
+        if not server_sub:
+            if self.server_badge.winfo_ismapped():
+                self.server_badge.pack_forget()
+            return
+
+        if not self.server_badge.winfo_ismapped():
+            self.server_badge.pack(side="left", padx=(10, 0))
+
+        s_ip = server_sub.ip
+        s_status = server_sub.status
+        s_latency = server_sub.latency
+        router_status = self.device.status
+
+        if s_status == "Online":
+            lat_str = f" ({s_latency})" if s_latency and s_latency != "-" else ""
+            self.server_badge.configure(
+                text=f"🖥️ Server: {s_ip}  ● Online{lat_str}",
+                fg_color="#064E3B",
+                text_color="#6EE7B7",
+                border_color="#059669",
+                border_width=1,
+                hover_color="#047857"
+            )
+        elif s_status == "Offline":
+            if router_status == "Online":
+                # THE DECEPTIVE OUTAGE: Router is UP, but internal Server is DEAD!
+                self.server_badge.configure(
+                    text=f"⚠️ SERVER OFFLINE: {s_ip}",
+                    fg_color="#7F1D1D",
+                    text_color="#FCA5A5",
+                    border_color="#EF4444",
+                    border_width=1.5,
+                    hover_color="#991B1B"
+                )
+            else:
+                self.server_badge.configure(
+                    text=f"🖥️ Server: {s_ip}  ● Offline",
+                    fg_color="#1E293B",
+                    text_color="#94A3B8",
+                    border_color="#475569",
+                    border_width=1,
+                    hover_color="#334155"
+                )
+        elif s_status == "Checking":
+            self.server_badge.configure(
+                text=f"🖥️ Server: {s_ip}  ● Checking...",
+                fg_color="#1E293B",
+                text_color="#93C5FD",
+                border_color="#3B82F6",
+                border_width=1,
+                hover_color="#1E3A8A"
+            )
+        else:
+            self.server_badge.configure(
+                text=f"🖥️ Server: {s_ip}  ● Unknown",
+                fg_color="#1E293B",
+                text_color="#94A3B8",
+                border_color="#334155",
+                border_width=1,
+                hover_color="#334155"
+            )
+
+    def _copy_server_ip(self):
+        """Copies the Server IP to system clipboard with instant tactile feedback."""
+        server_sub = self.device.get_server_sub_device()
+        if not server_sub or not server_sub.ip:
+            return
+        ip = server_sub.ip
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(ip)
+            self.server_badge.configure(text=f"📋 Copied {ip}!")
+            self.after(1200, self._update_server_badge)
+        except Exception:
+            pass
 
     def render_sub_devices(self):
         if self.sub_container is None:

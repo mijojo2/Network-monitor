@@ -111,14 +111,46 @@ class Device:
                 d_str = time.strftime("%b %d %H:%M", time.localtime(ref))
                 return f"🔴 Down: {days}d ago ({d_str})"
 
+    def get_server_sub_device(self) -> Optional[SubDevice]:
+        """Returns the server sub-device (matching name == 'server', case-insensitive)."""
+        for sub in self.sub_devices:
+            if sub.name.strip().lower() == "server":
+                return sub
+        return None
+
+    def get_server_ip(self) -> Optional[str]:
+        s = self.get_server_sub_device()
+        return s.ip if s else None
+
+    def get_server_status(self) -> str:
+        s = self.get_server_sub_device()
+        return s.status if s else "Unknown"
+
+    def is_server_down(self) -> bool:
+        """Returns True if the branch has a server sub-device and its status is Offline."""
+        s = self.get_server_sub_device()
+        return s is not None and s.status == "Offline"
+
+    def is_server_up(self) -> bool:
+        """Returns True if the branch has a server sub-device and its status is Online."""
+        s = self.get_server_sub_device()
+        return s is not None and s.status == "Online"
+
+    def is_router_up_server_down(self) -> bool:
+        """
+        Returns True when the branch router is Online, but the internal server is Offline.
+        Catches the deceptive outage where the router responds but the data server machine is down.
+        """
+        return self.status == "Online" and self.is_server_down()
+
     def get_branch_type(self) -> str:
         """Returns 'CircleK' (server ends in .222) or 'Franchise' (server ends in .2)."""
-        for sub in self.sub_devices:
-            if sub.name.lower() == "server":
-                if sub.ip.endswith(".222"):
-                    return "CircleK"
-                elif sub.ip.endswith(".2"):
-                    return "Franchise"
+        s = self.get_server_sub_device()
+        if s:
+            if s.ip.endswith(".222"):
+                return "CircleK"
+            elif s.ip.endswith(".2"):
+                return "Franchise"
         return "Unknown"
 
     def get_branch_type_display(self) -> str:

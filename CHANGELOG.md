@@ -13,6 +13,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.0] - 2026-09-26
+### Added
+- **Direct Server IP & Live Status Visibility on Card Header**:
+  - Embedded a dedicated, interactive Server badge directly on every branch card header right beside `Router: {ip}`.
+  - Shows Server IP, connection status, and latency at a glance without needing to expand sub-devices (e.g. `🖥️ Server: 192.168.76.2 ● Online (117 ms)`).
+  - Prominently flags the deceptive outage trap where the branch Router is `Online` but the internal data aggregation Server is `Offline`: displays a high-visibility crimson alert pill `⚠️ SERVER OFFLINE: 192.168.76.2` so data operators never miss a dead server behind an open router.
+  - Added 1-click clipboard copy to the Server badge: clicking the badge instantly copies the server's IP address and flashes `📋 Copied {ip}!` for rapid SSH/RDP/data extraction workflows.
+- **Dedicated Server Filter Controls & Dynamic Counters in FilterBar**:
+  - Added dedicated Server status filters in Row 2:
+    - `All Servers`: Displays all servers matching the active filters.
+    - `🔴 Server Down`: Filters branches whose server machine is Offline (both when router is up or down).
+    - `⚠️ Router UP / Svr Down`: Specifically isolates the deceptive trap branches where the router is Online but the internal server is dead.
+    - `🟢 Server Online`: Filters branches whose server machine is Online and healthy.
+  - Implemented 100% orthogonal filtering: combines seamlessly with `Type` (`🏢 Circle K` or `🤝 Franchise`) and `Status` (`All`, `Online`, `Offline`).
+  - Context-aware dynamic counters: selecting `🤝 Franchise` instantly updates the Server buttons to show exact counts for Franchise branches (e.g. `Server: All Servers (107) | 🔴 Server Down (X) | ⚠️ Router UP / Svr Down (Y) | 🟢 Server Online (Z)`).
+- **Core Model Helper Methods**:
+  - Added `get_server_sub_device()`, `get_server_ip()`, `get_server_status()`, `is_server_down()`, `is_server_up()`, and `is_router_up_server_down()` to the `Device` dataclass.
+
+---
+
 ## [1.3.9] - 2026-09-26
 ### Fixed
 - **Expand All Freeze & Crash Fix (700X Speedup)**:
