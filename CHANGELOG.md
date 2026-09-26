@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.6] - 2026-09-26
+### Changed
+- **Zero-Flicker Reactive UI (Pure Bloc Architecture)**:
+  - Removed full-screen widget repacking from periodic scan cycle refreshes, completely eliminating screen flashing, visual jitter, and scroll position resets.
+  - Implemented seamless, in-place visibility toggling in `_apply_display_filters`: matching cards stay mounted without re-rendering, and leaf widgets update via state-diffing.
+  - Reordered card sorting to run strictly upon explicit user interaction (Sort button clicks) and initial startup.
+- **Top Toolbar Clean-Up**:
+  - Removed the two unused input fields (`Branch Name` and `Router IP`) from the top left that cluttered the bar.
+  - Replaced with a clean `➕ Add Branch` button that opens a dedicated modal dialog on demand.
+  - Kept the working live search bar on the top right.
+
+---
+
 ## [1.3.5] - 2026-09-26
 ### Added
 - **Branch Type Segmentation (Circle K vs Franchise)**:

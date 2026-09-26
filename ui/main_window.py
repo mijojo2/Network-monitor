@@ -94,35 +94,17 @@ class NetworkMonitorApp(ctk.CTk):
         )
         top_bar.pack(fill="x", padx=12, pady=(10, 5))
 
-        # Add Device Section
-        self.name_entry = ctk.CTkEntry(
-            top_bar,
-            placeholder_text="Branch Name",
-            width=140,
-            height=32
-        )
-        self.name_entry.pack(side="left", padx=(10, 3), pady=8)
-        self.name_entry.bind("<Return>", lambda e: self.ip_entry.focus_set())
-
-        self.ip_entry = ctk.CTkEntry(
-            top_bar,
-            placeholder_text="Router IP (.1)",
-            width=130,
-            height=32
-        )
-        self.ip_entry.pack(side="left", padx=3, pady=8)
-        self.ip_entry.bind("<Return>", lambda e: self.add_device())
-
+        # Action Buttons (Add Branch & Delete Selected)
         ctk.CTkButton(
             top_bar,
-            text="➕ Add",
-            width=65,
+            text="➕ Add Branch",
+            width=110,
             height=32,
             font=(Theme.FONT_FAMILY, 12, "bold"),
             fg_color=Theme.ACCENT_BLUE,
             hover_color=Theme.ACCENT_BLUE_HOVER,
-            command=self.add_device
-        ).pack(side="left", padx=3, pady=8)
+            command=self.open_add_branch_dialog
+        ).pack(side="left", padx=(10, 3), pady=8)
 
         ctk.CTkButton(
             top_bar,
@@ -250,10 +232,11 @@ class NetworkMonitorApp(ctk.CTk):
         self.alert_service.sound_enabled = enabled
 
     def _on_filter_changed(self, status_filter: str, type_filter: str, sort_type: str):
+        sort_changed = (self.active_sort != sort_type)
         self.active_status_filter = status_filter
         self.active_type_filter = type_filter
         self.active_sort = sort_type
-        self._apply_display_filters()
+        self._apply_display_filters(force_reorder=sort_changed)
 
     def _on_search_keyrelease(self, event=None):
         if self._search_after_id:
@@ -318,20 +301,26 @@ class NetworkMonitorApp(ctk.CTk):
         else:
             return (0, 0, dev.name.lower())
 
-    def _apply_display_filters(self):
-        """Filters and repacks cards in sorted order."""
-        matching_cards = []
+    def _apply_display_filters(self, force_reorder: bool = False):
+        """
+        Smooth, flicker-free filter application (Bloc Architecture).
+        Only toggles visibility of cards without tearing down widgets or resetting scroll.
+        """
         for card in self.cards:
-            if self._card_matches_filter_and_search(card):
-                matching_cards.append(card)
-            else:
-                if card.winfo_ismapped():
-                    card.pack_forget()
+            should_show = self._card_matches_filter_and_search(card)
+            is_mapped = card.winfo_ismapped()
+            if should_show and not is_mapped:
+                card.pack(fill="x", padx=5, pady=4)
+            elif not should_show and is_mapped:
+                card.pack_forget()
 
-        # Sort matching cards according to active sort option
+        if force_reorder:
+            self._reorder_cards()
+
+    def _reorder_cards(self):
+        """Re-orders matching cards only when user explicitly toggles Sort."""
+        matching_cards = [c for c in self.cards if self._card_matches_filter_and_search(c)]
         matching_cards.sort(key=self._get_card_sort_key)
-
-        # Unpack matching then repack to guarantee exact visual order
         for card in matching_cards:
             card.pack_forget()
         for card in matching_cards:
@@ -343,6 +332,8 @@ class NetworkMonitorApp(ctk.CTk):
         self.cards = []
 
         devices = self.storage_service.load_devices()
+        # Pre-sort devices initially by latest response timestamp, then alphabetical
+        devices.sort(key=lambda d: (0, -d.last_seen, d.name.lower()) if (d.last_seen and d.last_seen > 0) else (1, 0, d.name.lower()))
         for dev in devices:
             self._create_and_pack_card(dev)
 
@@ -364,6 +355,10 @@ class NetworkMonitorApp(ctk.CTk):
         self._refresh_stats()
 
     def _refresh_stats(self):
+        """
+        Atomic stats & counters update.
+        Does NOT tear down or re-pack cards, guaranteeing zero flicker and smooth 60 FPS.
+        """
         total = len(self.cards)
         online = sum(1 for c in self.cards if c.device.status == "Online")
         offline = sum(1 for c in self.cards if c.device.status == "Offline")
@@ -392,32 +387,79 @@ class NetworkMonitorApp(ctk.CTk):
         self.stats_bar.update_stats(stats, target_scope)
         self.filter_bar.update_counts(total, online, offline, sub_issues, circle_k, franchise)
 
-        # Refresh sorted display order so newly updated cards float smoothly
-        self._apply_display_filters()
+    def open_add_branch_dialog(self):
+        """Opens a clean modal dialog to add a new branch without cluttering the toolbar."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("➕ Add New Branch")
+        dialog.geometry("420x250")
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=Theme.CONTAINER_BG)
+        dialog.transient(self)
+        dialog.grab_set()
 
-    def add_device(self):
-        name = self.name_entry.get().strip()
-        ip = self.ip_entry.get().strip()
-        if not name or not ip:
-            return
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (420 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (250 // 2)
+        dialog.geometry(f"+{x}+{y}")
 
-        # Ensure router IP ends in .1
-        parts = ip.split('.')
-        if len(parts) == 4 and parts[3] != '1':
-            parts[3] = '1'
-            ip = '.'.join(parts)
+        ctk.CTkLabel(
+            dialog,
+            text="➕ Add New Branch / Router",
+            font=(Theme.FONT_FAMILY, 15, "bold"),
+            text_color="#F8FAFC"
+        ).pack(pady=(16, 12), padx=20, anchor="w")
 
-        device = Device(
-            name=name,
-            ip=ip,
-            sub_devices=get_default_sub_devices(ip)
-        )
-        self._create_and_pack_card(device)
-        self._on_device_updated()
+        form = ctk.CTkFrame(dialog, fg_color=Theme.PANEL_BG, corner_radius=8)
+        form.pack(fill="x", padx=20, pady=(0, 15))
 
-        self.name_entry.delete(0, "end")
-        self.ip_entry.delete(0, "end")
-        self.name_entry.focus_set()
+        ctk.CTkLabel(form, text="Branch Name:", font=(Theme.FONT_FAMILY, 11, "bold"), text_color="#94A3B8").grid(row=0, column=0, padx=12, pady=(10, 2), sticky="w")
+        name_entry = ctk.CTkEntry(form, width=220, placeholder_text="e.g. Dokki 2")
+        name_entry.grid(row=0, column=1, padx=12, pady=(10, 2), sticky="e")
+        name_entry.focus_set()
+
+        ctk.CTkLabel(form, text="Router IP (.1):", font=(Theme.FONT_FAMILY, 11, "bold"), text_color="#94A3B8").grid(row=1, column=0, padx=12, pady=(8, 12), sticky="w")
+        ip_entry = ctk.CTkEntry(form, width=220, placeholder_text="e.g. 192.168.100.1")
+        ip_entry.grid(row=1, column=1, padx=12, pady=(8, 12), sticky="e")
+
+        def _save():
+            name = name_entry.get().strip()
+            ip = ip_entry.get().strip()
+            if not name or not ip:
+                return
+            parts = ip.split('.')
+            if len(parts) == 4 and parts[3] != '1':
+                parts[3] = '1'
+                ip = '.'.join(parts)
+
+            device = Device(
+                name=name,
+                ip=ip,
+                sub_devices=get_default_sub_devices(ip)
+            )
+            self._create_and_pack_card(device)
+            self._on_device_updated()
+            dialog.destroy()
+
+        btn_box = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_box.pack(fill="x", padx=20)
+
+        ctk.CTkButton(
+            btn_box,
+            text="Cancel",
+            width=80,
+            fg_color="#334155",
+            hover_color="#475569",
+            command=dialog.destroy
+        ).pack(side="right", padx=(6, 0))
+
+        ctk.CTkButton(
+            btn_box,
+            text="Add Branch",
+            width=100,
+            fg_color=Theme.ACCENT_BLUE,
+            hover_color=Theme.ACCENT_BLUE_HOVER,
+            command=_save
+        ).pack(side="right")
 
     def delete_selected(self):
         remaining = []
