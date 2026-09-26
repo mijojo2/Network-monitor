@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.4] - 2026-09-26
+### Added
+- **Server Sub-Device Provisioning for All 210 Branches**:
+  - Ingested Google Sheet data (`2010088143`) to dynamically map each branch's dedicated Server IP ending.
+  - Automatically provisioned a new `"Server"` sub-device across all 210 branches in [`devices.JSON`](devices.JSON):
+    - 107 branches assigned `.2` as per network topography.
+    - 103 branches assigned `.222` as per network topography.
+  - Corrected copy-pasted subnet typos for pre-existing servers (`Kafrsh 2`, `ELMax`, `marina.walk`).
+
+---
+
 ## [1.3.3] - 2026-09-26
 ### Added
 - **"Last Seen / Responded" Relative Timestamps & History**:
