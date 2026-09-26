@@ -63,17 +63,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.minsize(960, 600)
         ctk.set_appearance_mode("Dark")
         ctk.set_default_color_theme("blue")
-
-        try:
-            self.bg_image = ctk.CTkImage(
-                light_image=Image.open("assets/background.png"),
-                dark_image=Image.open("assets/background.png"),
-                size=(1140, 740)
-            )
-            self.background = ctk.CTkLabel(self, image=self.bg_image, text="")
-            self.background.place(x=0, y=0, relwidth=1, relheight=1)
-        except Exception:
-            self.configure(fg_color=Theme.BG_DARK)
+        self.configure(fg_color=Theme.BG_DARK)
 
     def _on_window_closing(self):
         self.stop_requested = True
@@ -228,15 +218,32 @@ class NetworkMonitorApp(ctk.CTk):
         )
         self.device_frame.pack(fill="both", expand=True, padx=12, pady=(2, 10))
 
+        # Accelerated smooth mousewheel scrolling
+        self._setup_smooth_scrolling()
+
+    def _setup_smooth_scrolling(self):
+        """Enhances scrolling velocity and responsiveness on Windows."""
+        frame = self.device_frame
+        original_scroll = frame._mouse_wheel_all
+
+        def _accelerated_scroll(event):
+            if frame._check_if_valid_scroll(event.widget):
+                if not getattr(frame, "_shift_pressed", False):
+                    # Responsive 40px velocity per notch
+                    frame._parent_canvas.yview("scroll", -int(event.delta / 3), "units")
+                    return "break"
+            return original_scroll(event)
+
+        frame._mouse_wheel_all = _accelerated_scroll
+
     def _on_toggle_sound(self, enabled: bool):
         self.alert_service.sound_enabled = enabled
 
     def _on_filter_changed(self, status_filter: str, type_filter: str, sort_type: str):
-        sort_changed = (self.active_sort != sort_type)
         self.active_status_filter = status_filter
         self.active_type_filter = type_filter
         self.active_sort = sort_type
-        self._apply_display_filters(force_reorder=sort_changed)
+        self._apply_display_filters()
 
     def _on_search_keyrelease(self, event=None):
         if self._search_after_id:
@@ -301,27 +308,15 @@ class NetworkMonitorApp(ctk.CTk):
         else:
             return (0, 0, dev.name.lower())
 
-    def _apply_display_filters(self, force_reorder: bool = False):
+    def _apply_display_filters(self):
         """
-        Smooth, flicker-free filter application (Bloc Architecture).
-        Only toggles visibility of cards without tearing down widgets or resetting scroll.
+        Applies active status and type filters while strictly preserving chronological sort order.
+        Guarantees that switching between tabs (e.g. Offline -> All) intermixes cards by last_seen.
         """
-        for card in self.cards:
-            should_show = self._card_matches_filter_and_search(card)
-            is_mapped = card.winfo_ismapped()
-            if should_show and not is_mapped:
-                card.pack(fill="x", padx=5, pady=4)
-            elif not should_show and is_mapped:
-                card.pack_forget()
-
-        if force_reorder:
-            self._reorder_cards()
-
-    def _reorder_cards(self):
-        """Re-orders matching cards only when user explicitly toggles Sort."""
         matching_cards = [c for c in self.cards if self._card_matches_filter_and_search(c)]
         matching_cards.sort(key=self._get_card_sort_key)
-        for card in matching_cards:
+
+        for card in self.cards:
             card.pack_forget()
         for card in matching_cards:
             card.pack(fill="x", padx=5, pady=4)
@@ -607,6 +602,7 @@ class NetworkMonitorApp(ctk.CTk):
             }
 
             batch = []
+            cycle_dropped_cards = []
 
             for future in concurrent.futures.as_completed(futures):
                 if self.stop_requested:
@@ -629,10 +625,11 @@ class NetworkMonitorApp(ctk.CTk):
                         else:
                             failures = self._offline_failure_counts.get(card.device.ip, 0) + 1
                             self._offline_failure_counts[card.device.ip] = failures
-                            # Alert ONLY when a branch that was active in this session drops for 2 confirmed cycles
+                            # Collect newly confirmed drops to alert cleanly at cycle completion
                             if card.device.ip in self._session_active_branches and failures == 2:
-                                self.alert_service.trigger_offline_alert(card.device.name, card.device.ip)
+                                cycle_dropped_cards.append(card)
                                 self._session_active_branches.discard(card.device.ip)
+                                self.after(0, lambda c=card: c.set_alert_state(True))
                             if failures >= 2:
                                 self._previous_states[card.device.ip] = "Offline"
 
@@ -653,6 +650,16 @@ class NetworkMonitorApp(ctk.CTk):
             # Cycle complete: atomic stats refresh
             self.after(0, self._refresh_stats)
             self._scan_cycle_count += 1
+
+            # Play audible alert and show status banner at the END of scan pass
+            if cycle_dropped_cards and not self.stop_requested:
+                names = ", ".join(c.device.name for c in cycle_dropped_cards[:3])
+                if len(cycle_dropped_cards) > 3:
+                    names += f" +{len(cycle_dropped_cards)-3} more"
+                self.alert_service.trigger_offline_alert("Outage", names)
+                alert_msg = f"🔔 ALERT: {names} went Offline!"
+                self.after(0, lambda msg=alert_msg: self.stats_bar.update_progress(0, 0, status_text=msg))
+                time.sleep(1.5)
 
             # Auto-save last seen timestamps every 3 cycles
             if self._scan_cycle_count % 3 == 0:

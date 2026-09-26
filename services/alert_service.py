@@ -33,12 +33,11 @@ class AlertService:
 
         def _play():
             try:
-                # Soft, discreet chime tone (700Hz for 80ms then 500Hz for 120ms)
-                winsound.Beep(700, 80)
-                winsound.Beep(520, 120)
+                # Windows hardware-mixed exclamation chime (zero audio driver spin-up delay)
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
             except Exception:
                 try:
-                    winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+                    winsound.Beep(700, 100)
                 except Exception:
                     pass
 

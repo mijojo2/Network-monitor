@@ -13,6 +13,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.7] - 2026-09-26
+### Added
+- **Visual Bell Outage Badge (`🔔 Outage Alert`)**:
+  - Newly confirmed offline branches are prominently tagged on their card header with a bright `🔔 Outage Alert` badge.
+  - The badge automatically clears when the branch recovers online.
+  - Cycle-end status notifications display the exact names of newly dropped branches (e.g. `🔔 ALERT: [Name] went Offline!`).
+
+### Changed
+- **Smooth 60 FPS Scrolling Velocity**:
+  - Removed full-window raster background image compositing, freeing up GDI rendering performance for pure 60 FPS scrolling.
+  - Implemented accelerated mousewheel scrolling via `_setup_smooth_scrolling` with 40px velocity per notch for fluid gliding through cards.
+- **Strict Chronological Ordering on Tab Switches**:
+  - Resolved filter tab order bug: switching from `Offline` back to `All` now strictly re-intertwines branches by `last_seen` timestamp rather than stacking offline cards at the top.
+- **Zero-Delay Cycle-End Audio Alerts**:
+  - Eliminated mid-scan sound hitches: audible chimes now sound cleanly at the conclusion of the scan cycle.
+  - Switched to hardware-accelerated `winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)` with 0.1ms instant playback.
+
+---
+
 ## [1.3.6] - 2026-09-26
 ### Changed
 - **Zero-Flicker Reactive UI (Pure Bloc Architecture)**:

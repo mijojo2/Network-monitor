@@ -105,6 +105,19 @@ class DeviceCard(ctk.CTkFrame):
             )
             self.type_badge.pack(side="left", padx=(8, 0))
 
+        # Visual Outage Alert Bell Badge (Shown when branch drops)
+        self.alert_badge = ctk.CTkLabel(
+            name_row,
+            text="🔔 Outage Alert",
+            font=(Theme.FONT_FAMILY, 10, "bold"),
+            text_color="#FCA5A5",
+            fg_color="#7F1D1D",
+            corner_radius=4,
+            padx=6,
+            pady=1
+        )
+        self.has_active_alert = False
+
         self.ip_lbl = ctk.CTkLabel(
             self.name_ip_frame,
             text=f"Router: {self.device.ip}",
@@ -343,6 +356,8 @@ class DeviceCard(ctk.CTkFrame):
             self.last_seen_lbl.configure(text=self.device.get_last_seen_display())
             if status == "Online":
                 self.last_seen_lbl.configure(text_color="#94A3B8")
+                if getattr(self, "has_active_alert", False):
+                    self.set_alert_state(False)
             else:
                 self.last_seen_lbl.configure(text_color="#F87171")
 
@@ -574,3 +589,13 @@ class DeviceCard(ctk.CTkFrame):
             self.update_visual_state(force=False)
 
         return state_changed
+
+    def set_alert_state(self, is_alert: bool):
+        """Displays or hides the visual bell alert badge when a branch drops."""
+        self.has_active_alert = is_alert
+        if is_alert:
+            if not self.alert_badge.winfo_ismapped():
+                self.alert_badge.pack(side="left", padx=(8, 0))
+        else:
+            if self.alert_badge.winfo_ismapped():
+                self.alert_badge.pack_forget()
