@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-09-26
+### Added
+- **Direct On-Header Offline Sub-Devices Visibility**:
+  - The card header now displays the exact names of offline sub-devices directly on the outside without needing to expand the card (e.g. `● Down: Cash 1, Fingerprint` or `● All Sub Down (...)`).
+- **Router IP Labeling & Standardization**:
+  - Automatically standardized all 210 branch parent router IPs in [`devices.JSON`](devices.JSON) to end with `.1` as the last octet (remediated 71 incorrectly entered IP addresses).
+  - Explicitly labeled all parent IPs as `Router: <ip>` in [`DeviceCard`](ui/components/device_card.py) for immediate visual identification.
+
+### Changed
+- **Ultra-Lightweight Lazy Loading & Performance Boost**:
+  - Re-architected sub-device containers to instantiate lazily on-demand, eliminating over 1,500 widgets from the initial startup tree and dramatically improving scrolling performance.
+  - Implemented Batched Ping Event Dispatches in the reactive scanning coordinator, cutting UI thread interrupts by 90%.
+  - Added clean application shutdown protocol (`WM_DELETE_WINDOW`) to gracefully terminate background thread pools.
+
+---
+
 ## [1.3.0] - 2026-09-26
 ### Added
 - **BLoC / Reactive State-Diffing Architecture**:

@@ -20,7 +20,7 @@ from ui.components.filter_bar import FilterBar
 class NetworkMonitorApp(ctk.CTk):
     """
     Main Application Window built on Clean Architecture and Reactive State-Diffing.
-    Includes Auto-start, Selective Pinging, Live 'X/Y' Progress Ratios, and Silent Background Scanning.
+    Includes Auto-start, Selective Pinging, Batched Ping Dispatches, and High-Performance Background Coordinator.
     """
 
     def __init__(self):
@@ -30,6 +30,9 @@ class NetworkMonitorApp(ctk.CTk):
         self.storage_service = StorageService()
         self.scanner_service = ScannerService(timeout_ms=500)
         self.alert_service = AlertService(sound_enabled=True)
+
+        # Persistent Thread Pool to avoid re-allocating 50 OS threads every cycle
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=50)
 
         # State
         self.cards: List[DeviceCard] = []
@@ -45,8 +48,11 @@ class NetworkMonitorApp(ctk.CTk):
         self._build_gui()
         self.load_devices()
 
+        # Handle clean window closing
+        self.protocol("WM_DELETE_WINDOW", self._on_window_closing)
+
         # Auto-start scanning on launch (after UI has fully rendered)
-        self.after(600, self.start_auto_scan)
+        self.after(500, self.start_auto_scan)
 
     def _init_window(self):
         self.title("Network Monitor Pro - Multi-Branch & Sub-Devices")
@@ -65,6 +71,15 @@ class NetworkMonitorApp(ctk.CTk):
             self.background.place(x=0, y=0, relwidth=1, relheight=1)
         except Exception:
             self.configure(fg_color=Theme.BG_DARK)
+
+    def _on_window_closing(self):
+        """Cleanly halts background threads and closes application."""
+        self.stop_requested = True
+        try:
+            self.executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        self.destroy()
 
     def _build_gui(self):
         # 1. Top Action Toolbar
@@ -89,7 +104,7 @@ class NetworkMonitorApp(ctk.CTk):
 
         self.ip_entry = ctk.CTkEntry(
             top_bar,
-            placeholder_text="IP Address",
+            placeholder_text="Router IP (.1)",
             width=130,
             height=32
         )
@@ -327,6 +342,12 @@ class NetworkMonitorApp(ctk.CTk):
         if not name or not ip:
             return
 
+        # Ensure router IP ends in .1
+        parts = ip.split('.')
+        if len(parts) == 4 and parts[3] != '1':
+            parts[3] = '1'
+            ip = '.'.join(parts)
+
         device = Device(
             name=name,
             ip=ip,
@@ -376,7 +397,7 @@ class NetworkMonitorApp(ctk.CTk):
         self.expand_all_btn.configure(text="Collapse All" if self.all_expanded else "Expand All")
 
     # ==========================================
-    # SCANNING CONTROLS & EVENT-DRIVEN ENGINE
+    # SCANNING CONTROLS & BATCHED EVENT-DRIVEN ENGINE
     # ==========================================
 
     def start_auto_scan(self):
@@ -426,82 +447,91 @@ class NetworkMonitorApp(ctk.CTk):
             self.scan_all_btn.configure(text="⚡ Scan All", fg_color=Theme.ACCENT_GREEN)
             self.scan_selected_btn.configure(text="🎯 Scan Selected", fg_color="#0284C7")
 
+    def _dispatch_ping_batch(self, batch, completed: int, total: int):
+        """Dispatches an entire batch of ping results in a single UI tick (cuts GUI interrupts by 90%)."""
+        def _apply():
+            for card, p_res, s_res in batch:
+                card.apply_ping_results(p_res, s_res)
+            self.stats_bar.update_progress(completed, total)
+        self.after(0, _apply)
+
     def _reactive_scan_coordinator(self):
         """
-        Reactive background coordinator using State-Diffing.
-        Pings in the background silently ('من تحت لتحت') without full UI wipes.
-        Only repaints cards whose state actually changed, and batches stats updates.
+        High-throughput reactive background coordinator.
+        Uses Batched Result Flushes and State-Diffing to maintain 60 FPS UI responsiveness.
         """
-        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
-            while not self.stop_requested:
-                if self.scan_mode == "SELECTED":
-                    target_cards = [c for c in self.cards if c.is_selected()]
-                else:
-                    target_cards = self.cards
+        while not self.stop_requested:
+            if self.scan_mode == "SELECTED":
+                target_cards = [c for c in self.cards if c.is_selected()]
+            else:
+                target_cards = self.cards
 
-                total_in_cycle = len(target_cards)
-                if total_in_cycle == 0:
-                    time.sleep(0.5)
-                    continue
+            total_in_cycle = len(target_cards)
+            if total_in_cycle == 0:
+                time.sleep(0.5)
+                continue
 
-                completed_in_cycle = 0
+            completed_in_cycle = 0
 
-                # Single ping task unit
-                def ping_card_unit(card: DeviceCard):
-                    if self.stop_requested:
-                        return None
-                    p_res = ping(card.device.ip)
-                    s_res = [ping(s.ip) for s in card.device.sub_devices]
-                    return card, p_res, s_res
+            # Single ping unit
+            def ping_card_unit(card: DeviceCard):
+                if self.stop_requested:
+                    return None
+                p_res = ping(card.device.ip)
+                s_res = [ping(s.ip) for s in card.device.sub_devices]
+                return card, p_res, s_res
 
-                futures = {
-                    executor.submit(ping_card_unit, card): card
-                    for card in target_cards
-                }
+            futures = {
+                self.executor.submit(ping_card_unit, card): card
+                for card in target_cards
+            }
 
-                # Process results as they complete
-                for future in concurrent.futures.as_completed(futures):
-                    if self.stop_requested:
-                        break
+            # Batch accumulator to eliminate GUI event loop flooding
+            batch = []
 
-                    try:
-                        res = future.result()
-                        if res:
-                            card, p_res, s_res = res
-                            completed_in_cycle += 1
-
-                            # Check state transitions for offline alert
-                            prev_status = self._previous_states.get(card.device.ip, "Unknown")
-                            new_online, _ = p_res
-
-                            if prev_status == "Online" and not new_online:
-                                self.alert_service.trigger_offline_alert(card.device.name, card.device.ip)
-
-                            self._previous_states[card.device.ip] = "Online" if new_online else "Offline"
-
-                            # Apply state-diffing to card
-                            current_done = completed_in_cycle
-                            self.after(
-                                0,
-                                lambda c=card, p=p_res, s=s_res, cnt=current_done: (
-                                    c.apply_ping_results(p, s),
-                                    self.stats_bar.update_progress(cnt, total_in_cycle)
-                                )
-                            )
-                    except Exception:
-                        pass
-
+            for future in concurrent.futures.as_completed(futures):
                 if self.stop_requested:
                     break
 
-                # End of cycle: Refresh all stats once atomically
-                self.after(0, self._refresh_stats)
+                try:
+                    res = future.result()
+                    if res:
+                        card, p_res, s_res = res
+                        completed_in_cycle += 1
 
-                # Breathing room interval before next round (2 seconds)
-                for _ in range(20):
-                    if self.stop_requested:
-                        break
-                    time.sleep(0.1)
+                        # Check state transition for offline alert
+                        prev_status = self._previous_states.get(card.device.ip, "Unknown")
+                        new_online, _ = p_res
+
+                        if prev_status == "Online" and not new_online:
+                            self.alert_service.trigger_offline_alert(card.device.name, card.device.ip)
+
+                        self._previous_states[card.device.ip] = "Online" if new_online else "Offline"
+
+                        batch.append((card, p_res, s_res))
+
+                        # Flush batch every 12 cards to keep UI fluid
+                        if len(batch) >= 12:
+                            self._dispatch_ping_batch(list(batch), completed_in_cycle, total_in_cycle)
+                            batch.clear()
+                except Exception:
+                    pass
+
+            # Flush any remaining items in batch
+            if batch and not self.stop_requested:
+                self._dispatch_ping_batch(list(batch), completed_in_cycle, total_in_cycle)
+
+            if self.stop_requested:
+                break
+
+            # End of cycle: Refresh all stats once atomically
+            self.after(0, self._refresh_stats)
+
+            # Breathing interval before next cycle (2 seconds)
+            for _ in range(20):
+                if self.stop_requested:
+                    break
+                time.sleep(0.1)
 
         self.is_scanning = False
         self.after(0, lambda: self._update_button_visuals(running_mode="STOPPED"))

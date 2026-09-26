@@ -7,7 +7,8 @@ from ui.components.edit_dialog import EditDeviceDialog
 class DeviceCard(ctk.CTkFrame):
     """
     Card widget representing a single parent device and its sub-devices.
-    Includes State-Diffing (BLoC / Reactive) to prevent unnecessary Tkinter widget redraws.
+    Includes State-Diffing, lazy sub-container instantiation, Router IP labeling,
+    and direct on-header offline sub-device names visibility.
     """
 
     def __init__(self, master, device: Device, on_delete=None, on_update=None, on_selection_change=None):
@@ -26,17 +27,17 @@ class DeviceCard(ctk.CTkFrame):
 
         self.is_expanded = False
         self.sub_rows = []
+        self.sub_container = None  # Lazy-initialized to save memory & reduce startup widgets
 
         # Internal state-diff tracking
         self._rendered_status = None
         self._rendered_latency = None
-        self._rendered_sub_counts = (-1, -1, -1)  # (online, offline, checking)
+        self._rendered_sub_state = None
 
         if not hasattr(self.device, "sub_devices") or self.device.sub_devices is None:
             self.device.sub_devices = []
 
         self._build_header()
-        self._build_sub_container()
         self.update_visual_state(force=True)
 
     def _build_header(self):
@@ -62,7 +63,7 @@ class DeviceCard(ctk.CTkFrame):
         )
         self.status_dot.grid(row=0, column=1, rowspan=2, padx=(0, 10), sticky="w")
 
-        # 2. Name & IP Stack
+        # 2. Name & Router IP Stack
         self.name_ip_frame = ctk.CTkFrame(self.header_frame, fg_color="transparent")
         self.name_ip_frame.grid(row=0, column=2, rowspan=2, sticky="w")
 
@@ -76,23 +77,23 @@ class DeviceCard(ctk.CTkFrame):
 
         self.ip_lbl = ctk.CTkLabel(
             self.name_ip_frame,
-            text=self.device.ip,
-            font=(Theme.MONO_FONT, 12),
-            text_color="#94A3B8",
+            text=f"Router: {self.device.ip}",
+            font=(Theme.MONO_FONT, 12, "bold"),
+            text_color="#38BDF8",
             anchor="w"
         )
         self.ip_lbl.pack(anchor="w")
 
         self.header_frame.grid_columnconfigure(2, weight=1)
 
-        # 3. Sub-devices Summary Pill
+        # 3. Sub-devices Summary Pill (Shows exact offline machine names from outside)
         self.sub_badge = ctk.CTkLabel(
             self.header_frame,
             text="",
             font=(Theme.FONT_FAMILY, 11, "bold"),
             text_color="#94A3B8"
         )
-        self.sub_badge.grid(row=0, column=3, rowspan=2, padx=10)
+        self.sub_badge.grid(row=0, column=3, rowspan=2, padx=12)
 
         # 4. Status Pill Badge (Vibrant Container)
         self.status_pill = ctk.CTkFrame(
@@ -142,6 +143,7 @@ class DeviceCard(ctk.CTkFrame):
         self.expand_btn.grid(row=0, column=6, rowspan=2, padx=(4, 0))
 
     def _build_sub_container(self):
+        """Constructs sub-devices accordion frame only on demand (lazy loading)."""
         self.sub_container = ctk.CTkFrame(
             self,
             fg_color=Theme.CONTAINER_BG,
@@ -206,9 +208,9 @@ class DeviceCard(ctk.CTkFrame):
     def _open_edit_dialog(self):
         def _on_edited(dev):
             self.name_lbl.configure(text=dev.name)
-            self.ip_lbl.configure(text=dev.ip)
+            self.ip_lbl.configure(text=f"Router: {dev.ip}")
             self.update_visual_state(force=True)
-            if self.is_expanded:
+            if self.is_expanded and self.sub_container is not None:
                 self.render_sub_devices()
             if self.on_update:
                 self.on_update()
@@ -235,20 +237,23 @@ class DeviceCard(ctk.CTkFrame):
             self.expand()
 
     def expand(self):
+        if self.sub_container is None:
+            self._build_sub_container()
         self.render_sub_devices()
         self.sub_container.pack(fill="x", padx=12, pady=(0, 10))
         self.is_expanded = True
         self.update_visual_state(force=True)
 
     def collapse(self):
-        self.sub_container.pack_forget()
+        if self.sub_container is not None:
+            self.sub_container.pack_forget()
         self.is_expanded = False
         self.update_visual_state(force=True)
 
     def update_visual_state(self, force: bool = False):
         """
-        Applies UI updates conditionally (State-Diffing).
-        If the device state hasn't changed, does ZERO widget repaints.
+        Applies UI updates conditionally using State-Diffing.
+        Displays exact offline sub-device names directly on the card header.
         """
         status = self.device.status
         latency = self.device.latency
@@ -291,35 +296,45 @@ class DeviceCard(ctk.CTkFrame):
                 self.configure(border_color=Theme.BORDER_COLOR)
 
         elif latency_changed and status == "Online":
-            # Fast-path: Only update text in pill label, no frame reconfiguration
             self._rendered_latency = latency
             self.pill_lbl.configure(text=f"{Theme.DOT_SYMBOL} Online   {latency}")
 
-        # 3. Sub-device Summary Badge Diffing
-        online_c = sum(1 for s in self.device.sub_devices if s.status == "Online")
-        offline_c = sum(1 for s in self.device.sub_devices if s.status == "Offline")
-        checking_c = sum(1 for s in self.device.sub_devices if s.status == "Checking")
-        current_sub_counts = (online_c, offline_c, checking_c)
+        # 3. Sub-devices Summary & Direct Offline Names Visibility
+        offline_subs = [s.name for s in self.device.sub_devices if s.status == "Offline"]
+        online_subs = [s.name for s in self.device.sub_devices if s.status == "Online"]
+        checking_subs = [s.name for s in self.device.sub_devices if s.status == "Checking"]
+        current_sub_state = (tuple(offline_subs), tuple(online_subs), tuple(checking_subs))
 
-        if current_sub_counts != self._rendered_sub_counts or force:
-            self._rendered_sub_counts = current_sub_counts
+        if current_sub_state != self._rendered_sub_state or force:
+            self._rendered_sub_state = current_sub_state
+
             if count == 0:
                 self.sub_badge.configure(text="")
             else:
-                if checking_c > 0:
+                if offline_subs:
+                    # Show EXACT offline sub-device names directly on the card header!
+                    offline_count = len(offline_subs)
+                    if offline_count == count:
+                        names_joined = ", ".join(offline_subs)
+                        self.sub_badge.configure(
+                            text=f"{Theme.DOT_SYMBOL} All Sub Down ({names_joined})",
+                            text_color=Theme.OFFLINE_TEXT
+                        )
+                    else:
+                        names_joined = ", ".join(offline_subs)
+                        self.sub_badge.configure(
+                            text=f"{Theme.DOT_SYMBOL} Down: {names_joined}",
+                            text_color=Theme.OFFLINE_TEXT
+                        )
+                elif checking_subs:
                     self.sub_badge.configure(
-                        text=f"{Theme.DOT_SYMBOL} Sub: Checking ({count})",
+                        text=f"{Theme.DOT_SYMBOL} Sub: Checking ({len(checking_subs)})",
                         text_color=Theme.CHECKING_TEXT
                     )
-                elif online_c == count and count > 0:
+                elif len(online_subs) == count and count > 0:
                     self.sub_badge.configure(
-                        text=f"{Theme.DOT_SYMBOL} Sub: {online_c}/{count} Online",
+                        text=f"{Theme.DOT_SYMBOL} All Sub Online ({count}/{count})",
                         text_color=Theme.ONLINE_TEXT
-                    )
-                elif offline_c > 0:
-                    self.sub_badge.configure(
-                        text=f"{Theme.DOT_SYMBOL} Sub: {offline_c}/{count} Offline",
-                        text_color=Theme.OFFLINE_TEXT
                     )
                 else:
                     self.sub_badge.configure(
@@ -328,6 +343,9 @@ class DeviceCard(ctk.CTkFrame):
                     )
 
     def render_sub_devices(self):
+        if self.sub_container is None:
+            return
+
         for child in self.sub_list_frame.winfo_children():
             child.destroy()
         self.sub_rows = []
@@ -458,7 +476,7 @@ class DeviceCard(ctk.CTkFrame):
             sub.status = "Checking"
             sub.latency = "Checking..."
         self.update_visual_state()
-        if self.is_expanded:
+        if self.is_expanded and self.sub_container is not None:
             for row in self.sub_rows:
                 row["dot"].configure(text_color=Theme.CHECKING_DOT)
                 row["status"].configure(text=f"{Theme.DOT_SYMBOL} Checking...", text_color=Theme.CHECKING_TEXT)
@@ -466,7 +484,7 @@ class DeviceCard(ctk.CTkFrame):
     def apply_ping_results(self, parent_result, sub_results) -> bool:
         """
         Applies ping results with State-Diffing.
-        Returns True if ANY visible status changed (to inform batch stats updates).
+        Only updates widgets if state or sub-device status actually changed.
         """
         p_online, p_latency = parent_result
         new_status = "Online" if p_online else "Offline"
@@ -490,7 +508,7 @@ class DeviceCard(ctk.CTkFrame):
                     sub.status = s_new_status
                     sub.latency = s_new_latency
 
-                    # Targeted sub-row repaint only if expanded
+                    # Targeted sub-row repaint only if expanded and rendered
                     if self.is_expanded and idx < len(self.sub_rows):
                         row = self.sub_rows[idx]
                         dot_c = Theme.ONLINE_DOT if s_online else Theme.OFFLINE_DOT
